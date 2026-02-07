@@ -1,0 +1,4 @@
+tests/
+ss/
+code2prompt*
+.env
