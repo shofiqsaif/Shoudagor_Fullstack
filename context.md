@@ -1,6 +1,6 @@
 # Shoudagor Fullstack Project Context
 
-> **Last Updated:** 2026-02-07  
+> **Last Updated:** 2026-02-14  
 > **Purpose:** Comprehensive documentation for LLMs and developers to understand the Shoudagor ERP system architecture, codebase structure, and key implementation details.
 
 ---
@@ -269,12 +269,12 @@ The database uses **PostgreSQL multi-schema architecture** to logically separate
 | Schema | Purpose | Key Tables |
 |--------|---------|------------|
 | `security` | User auth, permissions, multi-tenancy | `app_client`, `app_client_company`, `app_user`, `user_category`, `screen`, `module` |
-| `inventory` | Products and stock management | `product`, `product_variant`, `product_category`, `unit_of_measure`, `product_price`, `product_group` |
+| `inventory` | Products and stock management | `product`, `product_variant`, `product_category`, `unit_of_measure`, `product_price`, `product_group`, `claim_scheme`, `claim_slab`, `claim_log` |
 | `sales` | Sales orders, customers, SR, DSR | `customer`, `sales_order`, `sales_order_detail`, `sales_representative`, `sr_order`, `beat`, `delivery_sales_representative`, `dsr_so_assignment`, `dsr_payment_settlement`, `sr_disbursement` |
 | `procurement` | Purchase orders and suppliers | `supplier`, `purchase_order`, `purchase_order_detail`, `product_order_delivery_detail`, `product_order_payment_detail` |
 | `warehouse` | Storage and stock tracking | `warehouse`, `storage_location`, `inventory_stock`, `stock_transfer`, `dsr_storage`, `dsr_inventory_stock`, `dsr_stock_transfer`, `dsr_stock_transfer_detail` |
 | `billing` | Invoices and expenses | `invoice`, `invoice_detail`, `expenses` |
-| `transaction` | Inventory movements | `inventory_transaction`, `inventory_adjustment`, `adjustment_detail` |
+| `transaction` | Inventory movements | `inventory_transaction`, `inventory_adjustment`, `adjustment_detail`, `stock_log`, `stock_log_batch` |
 | `settings` | System configuration | `country`, `state`, `city`, `currency` |
 
 ### Common Mixins (app/models/mixins.py)
@@ -442,6 +442,14 @@ Key fields on `Invoice`:
 - `/products` - Product list with search (Elasticsearch)
 - `/products/new` - Add product with variants
 - `/categories`, `/units`, `/product-groups`
+- `/schemes` - Manage purchase and sales schemes
+
+### 1.1 Claims & Schemes
+**Location:** `app/models/claims.py`, `app/services/claims/claim_service.py`
+- **ClaimScheme**: Defines promotional rules like `buy_x_get_y`, `rebate_flat`, or `rebate_percentage`.
+- **ClaimSlab**: Tiers for schemes (e.g., Buy 5 Get 1, Buy 10 Get 3).
+- **ClaimLog**: Audit trail of scheme applications linked to specific orders.
+- **Workflow**: `ClaimService.evaluate_pre_claim` calculates benefits during order entry, which are then persisted as `ClaimLog` entries upon order finalization.
 
 ### 2. Sales Management
 
@@ -455,12 +463,14 @@ Key fields on `Invoice`:
 | **SalesOrderDetail** | Line items with shipped_quantity, returned_quantity, SR pricing |
 | **SalesOrderDeliveryDetail** | Delivery tracking |
 | **SalesOrderPaymentDetail** | Payment tracking |
+| **ClaimLog** | Promotional benefits applied to sales (captured in SalesOrderDetail) |
 
 **Frontend Pages:**
 - `/sales` - Sales orders list with DSR info, consolidation status
-- `/sales/new` - Create sales order
+- `/sales/new` - Create sales order with automated scheme evaluation
 - `/sales/pos` - Point of Sale interface
 - `/customers`, `/customers/beats`, `/customers/dues`
+- `/sales/deliveries` - Process deliveries via `UnifiedDeliveryForm`
 
 ### 3. Sales Representative (SR) Module
 
@@ -579,13 +589,13 @@ total = sum(effective_qty * unit_price for each detail)
 ```
 
 **Frontend Pages:**
-- `/purchases`, `/purchases/new`
+- `/purchases`, `/purchases/new` - Includes automated scheme evaluation for purchases
 - `/suppliers`, `/suppliers/new`
 
 **Frontend Forms:**
 - `PurchaseForm.tsx` - Create/edit purchase orders
-- `PurchaseDeliveryForm.tsx` - Record deliveries with returned quantity tracking
-- `PurchaseReturnForm.tsx` - Process returns
+- `UnifiedDeliveryForm.tsx` - Handles both Billable and Free quantities for deliveries and rejections
+- `PurchaseReturnForm.tsx` - Process returns including free quantity reconciliation
 - `PurchasePaymentForm.tsx` - Record payments
 
 ### 6. Warehouse & Inventory Stock
@@ -603,6 +613,14 @@ total = sum(effective_qty * unit_price for each detail)
 | **DSRInventoryStock** | Stock in DSR storage |
 | **DSRStockTransfer** | Transfers to/from DSR storage |
 | **DSRStockTransferDetail** | DSR transfer line items |
+| **StockLog** | Comprehensive movement log with EPP and running balance |
+| **StockLogBatch** | FIFO-based cost batches for inventory valuation |
+
+**Inventory Stock Log & EPP Tracking:**
+**Location:** `app/services/transaction/stock_log_service.py`
+- **StockLog**: Captures every movement (IN/OUT) with a mandatory `unit_cost` (EPP).
+- **Effective Purchase Price (EPP)**: The net cost basis for an item, factoring in discounts and free quantities.
+- **FIFO Logic**: `StockLogBatch` ensures that stock is consumed in the order it was received for accurate COGS (Cost of Goods Sold) calculation.
 
 **Inventory Transactions** (`app/models/transaction.py`):
 - `InventoryTransaction` - All stock movements logged
@@ -794,10 +812,24 @@ const isMobile = useMobile();
    └── alembic revision --autogenerate -m "description"
 ```
 
-#### 2. Pagination Pattern
-
-**Backend:**
+#### 2. Effective Trading Price (Eff. TP)
+**Used in Sales/Procurement Details** to calculate the net price per item:
 ```python
+@property
+def effective_tp(self):
+    total_qty = (self.quantity or 0) + (self.free_quantity or 0)
+    gross_price = (self.quantity or 0) * (self.unit_price or 0)
+    discount = (self.discount_amount or 0)
+    return float((gross_price - discount) / total_qty) if total_qty > 0 else 0.0
+```
+
+#### 3. Stock Movement Logging (FIFO)
+**Location:** `app/services/transaction/stock_log_service.py`
+- **IN movements**: Create a new `StockLogBatch` with `remaining_quantity = original_quantity` and `unit_cost = EPP`.
+- **OUT movements**: Allocate the quantity across existing batches in chronological order (FIFO), reducing their `remaining_quantity`.
+- **Audit**: Every `StockLog` entry contains `quantity_after` for point-in-time reconciliation.
+
+#### 4. Pagination Pattern
 # Repository
 def get_all(self, start: int = 0, limit: int = 20, company_id: int = None):
     query = self.db.query(Model).filter(Model.is_deleted == False)
@@ -816,7 +848,7 @@ const { data } = useQuery({
 });
 ```
 
-#### 3. Soft Delete Pattern
+#### 5. Soft Delete Pattern
 
 ```python
 # Never hard delete - always filter by is_deleted
@@ -829,7 +861,7 @@ def delete(self, id: int):
 query.filter(Model.is_deleted == False)
 ```
 
-#### 4. Multi-Tenant Query Pattern
+#### 6. Multi-Tenant Query Pattern
 
 ```python
 # ALWAYS filter by company_id
@@ -933,6 +965,8 @@ const PrivateRoute = () => {
 | SR logic | `app/api/sr/`, `app/services/sr/`, `app/schemas/sr/` |
 | Reports logic | `app/services/reports.py`, `app/schemas/reports.py` |
 | Consolidation logic | `app/services/consolidation_service.py` |
+| Claim/Scheme logic | `app/services/claims/claim_service.py` |
+| Stock Logging / FIFO | `app/services/transaction/stock_log_service.py` |
 
 ### Frontend Locations
 
@@ -953,6 +987,8 @@ const PrivateRoute = () => {
 | Global styles | `src/index.css` |
 | API base config | `src/lib/api.ts` |
 | Query client config | `src/lib/queryClient.ts` |
+| Unified Delivery Form | `src/components/forms/UnifiedDeliveryForm.tsx` |
+| Onboarding Cache | `src/components/auth/TestAccountOnboardingGate.tsx` |
 
 ### Common Search Patterns
 
