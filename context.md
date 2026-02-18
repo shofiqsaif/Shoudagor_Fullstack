@@ -438,6 +438,10 @@ Key fields on `Invoice`:
 | **VariantGroup** | Grouped variants for rapid selection |
 | **ProductVariantImage** | S3-hosted product images |
 
+**Key Fields:**
+- `reorder_level` - Minimum stock level before reordering
+- `safety_stock` - Buffer stock to prevent stockouts
+
 **Frontend Pages:**
 - `/products` - Product list with search (Elasticsearch)
 - `/products/new` - Add product with variants
@@ -752,6 +756,46 @@ Elasticsearch connection configured in `app/core/elasticsearch_config.py`
 
 ---
 
+## 🔔 Notification System
+
+**Location:** `app/models/notification.py`, `app/api/notification.py`, `app/services/notification/`
+
+### Overview
+A comprehensive notification system to alert users about critical events (e.g., low stock, pending approvals, order status changes).
+
+### key Components
+- **Backend:**
+    - `Notification`: Stores notification data, status (read/unread), and priority.
+    - `NotificationType`: Defines templates and categories for notifications.
+    - `NotificationService`: Handles creation and retrieval of notifications.
+- **Frontend:**
+    - `NotificationDropdown`: UI component for viewing and managing notifications.
+    - `useNotifications`: Hook for fetching and managing notification state.
+    - `notificationApi.ts`: API client for notification endpoints.
+
+---
+
+## 📊 Dashboard & Activity Feed
+
+**Location:** `app/services/dashboard_service.py`, `app/api/dashboard.py`
+
+### Recent Activity Feed
+Tracks and displays key business actions in real-time, providing visibility into user operations.
+
+- **Captured Activities:**
+    - Sales Orders (Created, Payment, Delivery)
+    - Purchase Orders (Created, Payment, Receipt)
+    - SR Disbursements & DSR Settlements
+    - Stock Movements (Transfers, Adjustments, DSR Load/Unload)
+    - Master Data Changes (Product, Customer, Supplier, etc.)
+    
+- **Features:**
+    - **Performed By:** Tracks the specific user who performed the action.
+    - **Pagination:** Supports infinite scroll/pagination for traversing history.
+    - **Filtering:** Aggregated view of all major system events.
+
+---
+
 ## 🪝 Frontend Hooks
 
 **Location:** `src/hooks/`
@@ -941,6 +985,24 @@ const PrivateRoute = () => {
     if (!user) return <Navigate to="/login" />;
     return <Outlet />;
 };
+```
+
+#### 5. Error Boundary Pattern
+
+**Location:** `src/components/RouteErrorBoundary.tsx`
+
+```typescript
+// Catches routing and rendering errors
+const RouteErrorBoundary = () => {
+    const error = useRouteError();
+    return (
+        <div className="error-container">
+            <h2>Something went wrong</h2>
+            <Button onClick={() => window.location.reload()}>Try Again</Button>
+        </div>
+    );
+};
+```
 ```
 
 ---
