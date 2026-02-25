@@ -1,6 +1,6 @@
 # Shoudagor Fullstack Project Context
 
-> **Last Updated:** 2026-02-14  
+> **Last Updated:** 2026-02-25  
 > **Purpose:** Comprehensive documentation for LLMs and developers to understand the Shoudagor ERP system architecture, codebase structure, and key implementation details.
 
 ---
@@ -342,7 +342,18 @@ Key fields on `SalesOrder`:
 Key fields on `SalesOrderDetail`:
 - `shipped_quantity` - Quantity shipped/delivered
 - `returned_quantity` - Quantity returned by customer
-- `sr_order_detail_id` - Link to original SR order detail
+- `sr_order_detail_id` - Link to original SR order detail (primary/first SR)
+- `sr_order_detail_ids` - JSONB array of all SR order detail IDs (for multi-SR consolidation)
+- `sr_details` - JSONB array containing detailed SR information per line item:
+  - `sr_order_detail_id` - Individual SR order detail ID
+  - `sr_id` - SR identifier
+  - `sr_name` - SR name
+  - `sr_order_id` - SR order ID
+  - `sr_order_number` - SR order number
+  - `quantity` - Quantity from this SR
+  - `negotiated_price` - Price negotiated by this SR
+  - `sale_price` - Sale price provided to this SR
+  - `price_adjustment` - Price difference for this SR's portion
 - `negotiated_price` - Price negotiated by SR
 - `price_difference` - Difference from standard price
 - `sr_id` - FK to SR who created original order
@@ -405,7 +416,7 @@ Key fields on `Invoice`:
 | `authApi.ts` | Authentication | `login()`, `refreshToken()` |
 | `productsApi.ts` | Inventory | `getProducts()`, `createProduct()`, `searchProducts()` |
 | `productVariantApi.ts` | Inventory | `getVariants()`, `createVariant()` |
-| `salesApi.ts` | Sales | `getSales()`, `createSale()`, `getConsolidatedSROrders()` |
+| `salesApi.ts` | Sales | `getSales()`, `createSale()`, `getConsolidatedSROrders()`, `getConsolidatedSROrderById()` |
 | `customerApi.ts` | Sales | `getCustomers()`, `createCustomer()` |
 | `purchaseApi.ts` | Procurement | `getPurchases()`, `createPurchase()`, `recordDelivery()`, `processReturn()` |
 | `salesRepresentativeApi.ts` | SR | `getSRs()`, `getSROrders()` |
@@ -418,6 +429,7 @@ Key fields on `Invoice`:
 | `storageLocationsApi.ts` | Warehouse | `getStorageLocations()` |
 | `reportsApi.ts` | Reports | `getInventoryKPIs()`, `getFIFOAging()`, `getPurchaseOrderReport()` |
 | `invoiceApi.ts` | Billing | `getInvoices()`, `createInvoice()` |
+| `testUserBasicInfoApi.ts` | Test Accounts | `getOnboardingStatus()`, `submitOnboardingInfo()` |
 
 ---
 
@@ -504,9 +516,12 @@ SR_Order (Draft) → Validation → Consolidation → SalesOrder (Finalized)
 **Key Service:** `ConsolidationService` (`app/services/consolidation_service.py`)
 - Validates SR orders for consolidation
 - Checks stock availability at selected location
-- Creates consolidated sales order
+- Creates consolidated sales order WITHOUT aggregating same product variants from different SRs
+- Each SR order detail becomes a separate line item in the consolidated sales order
+- Preserves individual SR details in JSONB columns (`sr_order_detail_ids`, `sr_details`)
 - Links SR order details to sales order details
 - Handles transaction rollback on errors
+- Supports final price adjustments during consolidation
 
 **Frontend Pages (SR Role):**
 - `/sr/orders` - SR's orders
@@ -518,10 +533,18 @@ SR_Order (Draft) → Validation → Consolidation → SalesOrder (Finalized)
 **Frontend Pages (Admin):**
 - `/sales-representatives` - Manage SRs
 - `/sales-representatives/all-orders` - View all SR orders
-- `/sales-representatives/consolidated` - Consolidated orders
+- `/sales-representatives/consolidated` - Consolidated orders with detailed SR breakdown
 - `/sales-representatives/unconsolidated` - Pending consolidation
 - `/sales-representatives/commissions` - Undisbursed commissions
 - `/sales-representatives/disbursement-history` - Disbursement records
+
+**Consolidated SR Order Details View:**
+- `ViewConsolidatedSROrderDetails.tsx` - Modal component showing:
+  - Grouped product/variant display with expandable SR details
+  - Individual SR contributions per line item
+  - Price adjustments per SR
+  - Total price adjustment calculation
+  - List of all consolidated SR orders
 
 ### 4. Delivery Sales Representative (DSR) Module
 
@@ -689,11 +712,14 @@ total = sum(effective_qty * unit_price for each detail)
 | **AppClient** | Top-level tenant (business) |
 | **AppClientCompany** | Company under a client (multi-company support) |
 | **User** | System user (linked to SR or DSR if applicable) |
-| **UserCategory** | Role/permission group |
+| **UserCategory** | Role/permission group with `accessible_modules` JSON field |
 | **Module/SubModule/Section/Screen** | Navigation hierarchy |
 | **UserCategoryWiseScreen** | Permission per role |
 | **UserWiseScreen** | Per-user permission overrides |
 | **UserCompanyAccess** | Multi-company access per user |
+
+**UserCategory Fields:**
+- `accessible_modules` - JSON field storing module access configuration for role-based navigation
 
 **Authentication Flow:**
 1. Login → Get token + user info + company context
@@ -706,6 +732,25 @@ total = sum(effective_qty * unit_price for each detail)
 - `SuperAdminRoute` - Requires super admin role
 - `SRRoute` - Requires SR role
 - `DSRRoute` - Requires DSR role
+
+### 10. Test Account Onboarding
+
+**Location:** `shoudagor_FE/src/components/auth/TestAccountOnboardingGate.tsx`, `app/api/test_user_basic_info.py`
+
+**Purpose:** Collects basic information from test account users on first login to improve user experience and gather feedback.
+
+**Features:**
+- Browser-based identification using localStorage
+- Modal gate that appears on first login for test accounts
+- Backend API to check onboarding status
+- Prevents repeated prompts once information is provided
+- Non-intrusive for production accounts
+
+**Implementation:**
+- `TestAccountOnboardingGate` - Wrapper component that checks onboarding status
+- `TestAccountOnboardingModal` - Modal form for collecting user information
+- `testUserBasicInfoApi` - API client for onboarding endpoints
+- localStorage key: `shoudagor_onboarding_provided_on_this_browser`
 
 ---
 
@@ -763,7 +808,7 @@ Elasticsearch connection configured in `app/core/elasticsearch_config.py`
 ### Overview
 A comprehensive notification system to alert users about critical events (e.g., low stock, pending approvals, order status changes).
 
-### key Components
+### Key Components
 - **Backend:**
     - `Notification`: Stores notification data, status (read/unread), and priority.
     - `NotificationType`: Defines templates and categories for notifications.
@@ -772,6 +817,7 @@ A comprehensive notification system to alert users about critical events (e.g., 
     - `NotificationDropdown`: UI component for viewing and managing notifications.
     - `useNotifications`: Hook for fetching and managing notification state.
     - `notificationApi.ts`: API client for notification endpoints.
+    - Accessible via `/notifications` page
 
 ---
 
@@ -1050,7 +1096,8 @@ const RouteErrorBoundary = () => {
 | API base config | `src/lib/api.ts` |
 | Query client config | `src/lib/queryClient.ts` |
 | Unified Delivery Form | `src/components/forms/UnifiedDeliveryForm.tsx` |
-| Onboarding Cache | `src/components/auth/TestAccountOnboardingGate.tsx` |
+| Onboarding Gate | `src/components/auth/TestAccountOnboardingGate.tsx` |
+| Consolidated SR Order Details | `src/pages/sr-orders/ViewConsolidatedSROrderDetails.tsx` |
 
 ### Common Search Patterns
 
@@ -1073,8 +1120,9 @@ const RouteErrorBoundary = () => {
 | `shoudagor_FE/src/App.tsx` | All routes, providers, app structure |
 | `shoudagor_FE/src/lib/api.ts` | Base API client with auth headers |
 | `shoudagor_FE/src/contexts/UserContext.tsx` | User auth state |
-| `Shoudagor/app/services/consolidation_service.py` | SR order consolidation logic |
+| `Shoudagor/app/services/consolidation_service.py` | SR order consolidation logic with multi-SR support |
 | `Shoudagor/app/services/reports.py` | Reporting business logic |
+| `shoudagor_FE/src/pages/sr-orders/ViewConsolidatedSROrderDetails.tsx` | Detailed SR consolidation view |
 
 ---
 

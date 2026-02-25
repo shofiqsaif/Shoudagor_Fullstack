@@ -1,0 +1,184 @@
+# Inventory Reports Implementation Plan
+
+## Background
+
+The deep research document identifies key inventory analytics for distribution businesses. This plan implements **4 new report endpoints** covering the most actionable reports not already served by the existing [Inventory.tsx](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/shoudagor_FE/src/pages/reports/Inventory.tsx) / `/reports/inventory` page (which already has: inventory KPI ribbon, timeline chart, aging report, safety stock / ABC analysis). 
+
+The 4 reports to implement are based on the highest-impact sections of the research document:
+
+| Report | Research Section | Key Business Value |
+|---|---|---|
+| **Warehouse Summary** | "Warehouse Summary and Real-Time Status Report" | Stock position per warehouse/location – prevents overselling |
+| **Inventory Valuation** | "Inventory Valuation and Cost Management Reports" | Financial snapshot of inventory asset value |
+| **DSI & GMROI** | "Days Sales of Inventory and GMROI" | Identifies cash trapped in slow stock vs. profitable items |
+| **Dead Stock** | "Obsolete and Dead Stock Reports" | Surfaces items with zero movement for disposal/clearance |
+
+These complement the existing Aging/Safety-stock/ABC reports already in production.
+
+---
+
+## Proposed Changes
+
+### Backend
+
+---
+
+#### [MODIFY] [inventory_reports.py](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/Shoudagor/app/repositories/reports/inventory_reports.py)
+
+Adds 4 new repository methods with raw SQL:
+
+1. **`get_warehouse_summary(company_id, start_date, end_date)`**  
+   Queries `warehouse.inventory_stock ← warehouse.storage_location ← inventory.product ← inventory.product_variant ← inventory.product_price`. Returns per-location stock: `location_id, location_name, product_id, product_name, sku, beginning_balance, total_receipts, total_dispatches, committed_stock, current_stock, current_inventory_value`.
+
+2. **`get_inventory_valuation(company_id)`**  
+   Uses existing LIFO purchase pattern (from [get_inventory_kpi_ribbon_data](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/Shoudagor/app/services/reports.py#30-49)) but broken down per product/variant. Returns: `product_id, product_name, sku, variant_id, quantity_on_hand, unit_cost, total_cost_value, total_selling_value, total_retail_value`.
+
+3. **`get_dsi_gmroi_report(company_id, start_date, end_date)`**  
+   **DSI** = (Average Inventory Value / COGS) × 365. **GMROI** = Gross Profit / Avg Inventory Cost. Queries sales orders + purchase prices per category. Returns: `category_id, category_name, cogs, avg_inventory_value, gross_profit, dsi, gmroi`.
+
+4. **`get_dead_stock_report(company_id, days_threshold)`**  
+   Items with zero sales in last N days AND positive current stock. Uses `warehouse.inventory_stock`, `sales.sales_order_detail`. Returns: `product_id, product_name, sku, variant_id, current_stock, unit_value, total_value, last_sale_date, days_since_last_sale`.
+
+---
+
+#### [MODIFY] [reports.py (repository)](file:///c:/Users/Shofiq/Documents/0 work/Shoudagor_Fullstack/Shoudagor/app/repositories/reports/reports.py)
+
+Adds delegation to the 4 new [InventoryReportsRepository](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/Shoudagor/app/repositories/reports/inventory_reports.py#6-320) methods (following the existing pattern for `get_maverick_spend_report` etc.).
+
+---
+
+#### [MODIFY] [reports.py (schemas)](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/Shoudagor/app/schemas/reports.py)
+
+Adds 8 new Pydantic models:
+
+```python
+# Warehouse Summary
+class WarehouseSummaryItem(BaseModel): ...
+class WarehouseSummaryReport(BaseModel): ...
+
+# Inventory Valuation
+class InventoryValuationItem(BaseModel): ...
+class InventoryValuationReport(BaseModel): ...
+
+# DSI & GMROI
+class DSIGMROIItem(BaseModel): ...
+class DSIGMROIReport(BaseModel): ...
+
+# Dead Stock
+class DeadStockItem(BaseModel): ...
+class DeadStockReport(BaseModel): ...
+```
+
+---
+
+#### [MODIFY] [reports.py (service)](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/Shoudagor/app/services/reports.py)
+
+Adds 4 service methods: `get_warehouse_summary_report`, `get_inventory_valuation_report`, `get_dsi_gmroi_report`, `get_dead_stock_report`. Each retrieves rows from the repo and maps into Pydantic types.
+
+---
+
+#### [MODIFY] [reports.py (API)](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/Shoudagor/app/api/reports.py)
+
+Adds 4 new `@router.get` endpoints:
+
+| Endpoint | Method | Query Params |
+|---|---|---|
+| `/reports/inventory/warehouse-summary` | GET | `start_date`, `end_date` |
+| `/reports/inventory/valuation` | GET | *(none)* |
+| `/reports/inventory/dsi-gmroi` | GET | `start_date`, `end_date` |
+| `/reports/inventory/dead-stock` | GET | `days_threshold` (default 180) |
+
+---
+
+### Frontend
+
+---
+
+#### [MODIFY] [reportsApi.ts](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/shoudagor_FE/src/lib/api/reportsApi.ts)
+
+Adds TypeScript interface definitions for all 4 new report types (matching schema) and 4 new `apiRequest` fetch functions.
+
+---
+
+#### [NEW] [WarehouseSummary.tsx](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/shoudagor_FE/src/pages/reports/inventory/WarehouseSummary.tsx)
+
+- Date range picker (same pattern as [InventoryPerformance.tsx](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/shoudagor_FE/src/pages/reports/sales/InventoryPerformance.tsx))
+- KPI ribbon: Total Locations, Total SKUs, Total Stock Value
+- Table: Location × Product with columns: Location, SKU, Product, Beginning Balance, Total Receipts, Total Dispatches, Current Stock, Stock Value
+- Group rows by location with subtotals
+- Info tooltip explaining business impact
+
+---
+
+#### [NEW] [InventoryValuation.tsx](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/shoudagor_FE/src/pages/reports/inventory/InventoryValuation.tsx)
+
+- KPI: Total Inventory Cost, Total Selling Value, Total Retail Value, Estimated Gross Profit
+- Stacked bar chart: Cost vs Selling Value by product (top 15)
+- Table: Product, SKU, Qty on Hand, Unit Cost, Total Cost, Total Selling, Total Retail
+
+---
+
+#### [NEW] [StockMovement.tsx](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/shoudagor_FE/src/pages/reports/inventory/StockMovement.tsx)
+
+- Date range picker
+- KPI ribbon: Avg DSI (days), Best GMROI Category, Worst DSI Category
+- Bar chart: DSI by category
+- Bar chart: GMROI by category
+- Table: Category, COGS, Avg Inventory Value, DSI, GMROI
+
+---
+
+#### [NEW] [DeadStock.tsx](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/shoudagor_FE/src/pages/reports/inventory/DeadStock.tsx)
+
+- "Days without sales" threshold selector (90 / 180 / 365 days)
+- KPI: Total Dead Stock Value, Number of Dead SKUs, % of Total Inventory Value
+- Table: Product, SKU, Current Qty, Unit Cost, Total Value, Last Sale Date, Days Since Last Sale
+- Badge: "Critical" (365+), "Warning" (180-365), "Monitor" (<180)
+- Call to action tooltip (discount, transfer, write-off)
+
+---
+
+#### [MODIFY] [App.tsx](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/shoudagor_FE/src/App.tsx)
+
+Import the 4 new components; add routes:
+```
+/reports/inventory/warehouse-summary
+/reports/inventory/valuation
+/reports/inventory/dsi-gmroi
+/reports/inventory/dead-stock
+```
+
+---
+
+#### [MODIFY] [Reports.tsx](file:///c:/Users/Shofiq/Documents/0%20work/Shoudagor_Fullstack/shoudagor_FE/src/pages/reports/Reports.tsx)
+
+Add 4 new cards under the existing "Inventory & Demand" category section.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+
+```bash
+# 1. Run existing test suite (no test file exists for reports, so this verifies nothing breaks)
+cd c:\Users\Shofiq\Documents\0 work\Shoudagor_Fullstack\Shoudagor
+python -m pytest tests/ -v --tb=short 2>&1 | head -80
+```
+
+```bash
+# 2. Frontend build check - ensures no TS errors
+cd c:\Users\Shofiq\Documents\0 work\Shoudagor_Fullstack\shoudagor_FE
+npm run build 2>&1 | tail -30
+```
+
+### Manual Verification
+
+1. **Start the backend** and navigate to `http://localhost:8001/docs`
+2. **Test each new endpoint** with your company's credentials via Swagger UI:
+   - `GET /api/company/reports/inventory/warehouse-summary?start_date=2025-01-01&end_date=2026-12-31` → Must return JSON with `items` list
+   - `GET /api/company/reports/inventory/valuation` → Must return `items` with cost/selling values
+   - `GET /api/company/reports/inventory/dsi-gmroi?start_date=2025-01-01&end_date=2026-12-31` → Must return `items` with `dsi` and `gmroi` fields
+   - `GET /api/company/reports/inventory/dead-stock?days_threshold=180` → Must return `items` with dead stock products
+3. **Start the frontend** (`npm run dev` in `shoudagor_FE`) and navigate to `/reports` — confirm 4 new cards appear in the "Inventory & Demand" section
+4. **Click each new report card** and verify the page loads with data (or a graceful empty state)
