@@ -1,6 +1,6 @@
 # Shoudagor Fullstack Project Context
 
-> **Last Updated:** 2026-02-25  
+> **Last Updated:** 2026-03-04  
 > **Purpose:** Comprehensive documentation for LLMs and developers to understand the Shoudagor ERP system architecture, codebase structure, and key implementation details.
 
 ---
@@ -199,6 +199,8 @@ The app uses nested routing with role-based access:
 │   ├── /sales/pos       → POS (standalone)
 │   ├── AdminRoute
 │   │   ├── /dashboard
+│   │   ├── /dashboard/recent-activities
+│   │   ├── /notifications
 │   │   ├── /products, /products/new
 │   │   ├── /categories, /categories/new
 │   │   ├── /units, /units/new
@@ -209,6 +211,9 @@ The app uses nested routing with role-based access:
 │   │   ├── /purchases, /purchases/new
 │   │   ├── /sales, /sales/new
 │   │   ├── /invoices
+│   │   ├── /claims/schemes, /claims/schemes/new, /claims/schemes/:id/edit
+│   │   ├── /claims/logs
+│   │   ├── /claims/reports
 │   │   ├── /sales-representatives/*
 │   │   │   ├── /sales-representatives
 │   │   │   ├── /sales-representatives/new
@@ -217,7 +222,9 @@ The app uses nested routing with role-based access:
 │   │   │   ├── /sales-representatives/consolidated
 │   │   │   ├── /sales-representatives/unconsolidated
 │   │   │   ├── /sales-representatives/commissions
-│   │   │   └── /sales-representatives/disbursement-history
+│   │   │   ├── /sales-representatives/disbursement-history
+│   │   │   ├── /sales-representatives/price-management
+│   │   │   └── /sales-representatives/assigned-products
 │   │   ├── /dsr/*  (DSR Admin Management)
 │   │   │   ├── /dsr
 │   │   │   ├── /dsr/new
@@ -231,7 +238,33 @@ The app uses nested routing with role-based access:
 │   │   │   ├── /warehouse/inventory-stock/adjustment
 │   │   │   └── /warehouse/inventory
 │   │   ├── /expenses, /expenses/new
-│   │   ├── /reports, /reports/inventory, /reports/purchaseorder
+│   │   ├── /reports
+│   │   │   ├── /reports/inventory
+│   │   │   │   ├── /reports/inventory/warehouse-summary
+│   │   │   │   ├── /reports/inventory/valuation
+│   │   │   │   ├── /reports/inventory/dsi-gmroi
+│   │   │   │   ├── /reports/inventory/dead-stock
+│   │   │   │   └── /reports/inventory/safety-stock
+│   │   │   ├── /reports/purchaseorder
+│   │   │   │   ├── /reports/purchaseorder/maverick-spend
+│   │   │   │   ├── /reports/purchaseorder/variance
+│   │   │   │   ├── /reports/purchaseorder/emergency-orders
+│   │   │   │   ├── /reports/purchaseorder/cash-flow
+│   │   │   │   ├── /reports/purchaseorder/classification
+│   │   │   │   ├── /reports/purchaseorder/consolidation
+│   │   │   │   ├── /reports/purchaseorder/progress
+│   │   │   │   └── /reports/purchaseorder/uninvoiced
+│   │   │   └── /reports/sales/*
+│   │   │       ├── /reports/sales/fulfillment
+│   │   │       ├── /reports/sales/profitability
+│   │   │       ├── /reports/sales/inventory-performance
+│   │   │       ├── /reports/sales/team-performance
+│   │   │       ├── /reports/sales/advanced
+│   │   │       ├── /reports/sales/product-analysis
+│   │   │       ├── /reports/sales/territory-performance
+│   │   │       ├── /reports/sales/customer-activity
+│   │   │       ├── /reports/sales/pipeline-analysis
+│   │   │       └── /reports/sales/demand-forecast
 │   │   └── /settings/invoice
 │   ├── SuperAdminRoute
 │   │   ├── /super-admin/user-categories, /super-admin/user-categories/new
@@ -241,7 +274,8 @@ The app uses nested routing with role-based access:
 │   │   ├── /sr/orders, /sr/orders/new
 │   │   ├── /sr/products
 │   │   ├── /sr/customers
-│   │   └── /sr/phone-suggestions
+│   │   ├── /sr/phone-suggestions
+│   │   └── /sr/price-management
 │   └── DSRRoute (Delivery Rep mobile)
 │       ├── /dsr/my-assignments
 │       └── /dsr/my-inventory
@@ -397,6 +431,7 @@ Key fields on `Invoice`:
 | **Procurement** | `/procurement/` | Suppliers, purchase orders, deliveries, payments |
 | **Warehouse** | `/warehouse/` | Storage locations, inventory stock, DSR storage |
 | **Billing** | `/billing/` | Invoices, expenses |
+| **Claims** | `/claims/` | Schemes, slabs, claim logs |
 | **Reports** | `/reports/` | Inventory KPIs, FIFO aging, purchase order reports |
 | **Consolidation** | `/sales/consolidation/` | SR order consolidation |
 | **Settings** | `/settings/` | Currency, locations |
@@ -421,13 +456,15 @@ Key fields on `Invoice`:
 | `purchaseApi.ts` | Procurement | `getPurchases()`, `createPurchase()`, `recordDelivery()`, `processReturn()` |
 | `salesRepresentativeApi.ts` | SR | `getSRs()`, `getSROrders()` |
 | `srOrderApi.ts` | SR | `createSROrder()`, `getSROrders()` |
+| `srProductAssignmentPriceApi.ts` | SR | SR price management |
 | `dsrApi.ts` | DSR | `getDSRs()`, `createDSR()`, `getDSRAssignments()` |
 | `dsrInventoryStockApi.ts` | DSR | `getDSRInventoryStock()` |
 | `dsrSettlementApi.ts` | DSR | `getSettlements()`, `createSettlement()` |
 | `dsrStorageApi.ts` | DSR | `getDSRStorages()`, `transferStock()` |
 | `inventoryApi.ts` | Warehouse | `getInventoryStock()`, `transferStock()` |
 | `storageLocationsApi.ts` | Warehouse | `getStorageLocations()` |
-| `reportsApi.ts` | Reports | `getInventoryKPIs()`, `getFIFOAging()`, `getPurchaseOrderReport()` |
+| `reportsApi.ts` | Reports | Multiple report endpoints |
+| `claimsApi.ts` | Claims | `getSchemes()`, `createScheme()`, `getClaimLogs()` |
 | `invoiceApi.ts` | Billing | `getInvoices()`, `createInvoice()` |
 | `testUserBasicInfoApi.ts` | Test Accounts | `getOnboardingStatus()`, `submitOnboardingInfo()` |
 
@@ -461,11 +498,48 @@ Key fields on `Invoice`:
 - `/schemes` - Manage purchase and sales schemes
 
 ### 1.1 Claims & Schemes
-**Location:** `app/models/claims.py`, `app/services/claims/claim_service.py`
-- **ClaimScheme**: Defines promotional rules like `buy_x_get_y`, `rebate_flat`, or `rebate_percentage`.
-- **ClaimSlab**: Tiers for schemes (e.g., Buy 5 Get 1, Buy 10 Get 3).
-- **ClaimLog**: Audit trail of scheme applications linked to specific orders.
-- **Workflow**: `ClaimService.evaluate_pre_claim` calculates benefits during order entry, which are then persisted as `ClaimLog` entries upon order finalization.
+**Location:** `app/models/claims.py`, `app/schemas/claims.py`, `app/services/claims/`, `app/api/claims.py`
+
+This is a **newly implemented module** for managing promotional schemes and claims:
+
+| Entity | Description |
+|--------|-------------|
+| **ClaimScheme** | Defines promotional rules: `buy_x_get_y`, `rebate_flat`, or `rebate_percentage` |
+| **ClaimSlab** | Tiers for schemes (e.g., Buy 5 Get 1, Buy 10 Get 3) |
+| **ClaimLog** | Audit trail of scheme applications linked to specific orders |
+
+**ClaimScheme Fields:**
+- `scheme_name`, `description`, `scheme_type`
+- `start_date`, `end_date`, `is_active`
+- `trigger_product_id`, `trigger_variant_id` - The product that triggers the scheme
+- `free_product_id`, `free_variant_id` - The free product given (for buy_x_get_y)
+- `applicable_to` - 'purchase' or 'sale'
+- `slabs` - One-to-many relationship with ClaimSlab
+
+**ClaimSlab Fields:**
+- `threshold_qty` - Quantity to buy to trigger this slab
+- `free_qty` - Quantity given for free (for buy_x_get_y)
+- `discount_amount` - Flat discount (for rebate_flat)
+- `discount_percentage` - Percentage discount (for rebate_percentage)
+
+**ClaimLog Fields:**
+- `ref_id`, `ref_type` - Reference to PO or SO
+- `order_detail_id` - Link to specific order detail
+- `applied_on_qty` - Quantity the scheme applied to
+- `given_free_qty`, `given_discount_amount` - Benefits provided
+
+**Workflow:** `ClaimService.evaluate_pre_claim` calculates benefits during order entry, which are then persisted as `ClaimLog` entries upon order finalization.
+
+**Frontend Pages:**
+- `/claims/schemes` - List all schemes
+- `/claims/schemes/new` - Create new scheme
+- `/claims/schemes/:id/edit` - Edit existing scheme
+- `/claims/logs` - View claim application history
+- `/claims/reports` - Free quantity and discount reports
+
+**Frontend Forms:**
+- `SchemeForm.tsx` - Create/edit schemes with slabs
+- `SchemeList.tsx`, `SchemeLogList.tsx`, `ClaimReports.tsx` - List and report views
 
 ### 2. Sales Management
 
@@ -683,7 +757,7 @@ total = sum(effective_qty * unit_price for each detail)
 
 ### 8. Reports Module
 
-**Location:** `app/services/reports.py`, `app/api/reports.py`, `app/schemas/reports.py`
+**Location:** `app/services/reports.py`, `app/api/reports.py`, `app/schemas/reports.py`, `app/repositories/reports/`
 
 | Report | Description |
 |--------|-------------|
@@ -691,6 +765,41 @@ total = sum(effective_qty * unit_price for each detail)
 | **FIFO Aging** | Inventory aging buckets (0-30, 31-60, 61-90, 90+ days) with COGS data |
 | **Current Stock** | Stock with timeline, financial metrics per product/variant |
 | **Purchase Order Report** | Comprehensive PO analytics by year or date range |
+
+#### Sales Reports (New)
+| Report | Description |
+|--------|-------------|
+| **Fulfillment Report** | Order fulfillment metrics and delivery performance |
+| **Financial Report** | Profitability and financial analysis |
+| **Inventory Performance** | Inventory turnover and performance metrics |
+| **Sales Team Analytics** | SR/DSR performance and productivity |
+| **Advanced Insights** | Deep analytics and business insights |
+| **Product Sales Analysis** | Product-wise sales breakdown |
+| **Territory Performance** | Geographic/beat-wise performance |
+| **Customer Activity** | Customer engagement and activity |
+| **Pipeline Analysis** | Sales pipeline visibility |
+| **Demand Forecast** | AI-powered demand predictions |
+
+#### Purchase Order Reports (New)
+| Report | Description |
+|--------|-------------|
+| **Maverick Spend** | Off-contract purchasing analysis |
+| **Invoice Variance** | PO vs Invoice price differences |
+| **Emergency Orders** | Urgent procurement analysis |
+| **Cash Flow Projection** | PO payment timeline forecasting |
+| **ABC/XYZ Classification** | Spend categorization |
+| **Supplier Consolidation** | Supplier concentration analysis |
+| **PO Progress** | Purchase order status tracking |
+| **Uninvoiced Receipts** | Goods received but not invoiced |
+
+#### Inventory Reports (New)
+| Report | Description |
+|--------|-------------|
+| **Warehouse Summary** | Warehouse-wise stock overview |
+| **Inventory Valuation** | Stock valuation report |
+| **DSI/GMROI** | Inventory efficiency metrics |
+| **Dead Stock** | Slow-moving inventory identification |
+| **Safety Stock** | Safety stock level analysis |
 
 **Report Methods in `ReportsService`:**
 - `get_inventory_kpi_ribbon_data()` - LIFO-based inventory metrics
@@ -701,7 +810,31 @@ total = sum(effective_qty * unit_price for each detail)
 **Frontend Pages:**
 - `/reports` - Reports dashboard
 - `/reports/inventory` - Inventory reports
+  - `/reports/inventory/warehouse-summary`
+  - `/reports/inventory/valuation`
+  - `/reports/inventory/dsi-gmroi`
+  - `/reports/inventory/dead-stock`
+  - `/reports/inventory/safety-stock`
 - `/reports/purchaseorder` - Purchase order reports
+  - `/reports/purchaseorder/maverick-spend`
+  - `/reports/purchaseorder/variance`
+  - `/reports/purchaseorder/emergency-orders`
+  - `/reports/purchaseorder/cash-flow`
+  - `/reports/purchaseorder/classification`
+  - `/reports/purchaseorder/consolidation`
+  - `/reports/purchaseorder/progress`
+  - `/reports/purchaseorder/uninvoiced`
+- `/reports/sales/` - Sales reports
+  - `/reports/sales/fulfillment`
+  - `/reports/sales/profitability`
+  - `/reports/sales/inventory-performance`
+  - `/reports/sales/team-performance`
+  - `/reports/sales/advanced`
+  - `/reports/sales/product-analysis`
+  - `/reports/sales/territory-performance`
+  - `/reports/sales/customer-activity`
+  - `/reports/sales/pipeline-analysis`
+  - `/reports/sales/demand-forecast`
 
 ### 9. Security & Multi-Tenancy
 
@@ -1071,7 +1204,8 @@ const RouteErrorBoundary = () => {
 | Database migrations | `alembic/versions/` |
 | DSR logic | `app/api/dsr/`, `app/services/dsr/`, `app/schemas/dsr/` |
 | SR logic | `app/api/sr/`, `app/services/sr/`, `app/schemas/sr/` |
-| Reports logic | `app/services/reports.py`, `app/schemas/reports.py` |
+| Claims logic | `app/api/claims.py`, `app/services/claims/`, `app/schemas/claims.py` |
+| Reports logic | `app/services/reports.py`, `app/schemas/reports.py`, `app/repositories/reports/` |
 | Consolidation logic | `app/services/consolidation_service.py` |
 | Claim/Scheme logic | `app/services/claims/claim_service.py` |
 | Stock Logging / FIFO | `app/services/transaction/stock_log_service.py` |
@@ -1081,6 +1215,7 @@ const RouteErrorBoundary = () => {
 | To Find... | Look In |
 |------------|---------|
 | Page component | `src/pages/{domain}/` |
+| Claims pages | `src/pages/claims/` |
 | DSR pages | `src/pages/dsr/` |
 | SR order pages | `src/pages/sr-orders/` |
 | Report pages | `src/pages/reports/` |
