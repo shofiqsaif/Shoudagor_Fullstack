@@ -1,4 +1,4 @@
-
+*.zip
 ss/
 code2prompt*
 .env
