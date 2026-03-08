@@ -1,6 +1,6 @@
 # Shoudagor Fullstack Project Context
 
-> **Last Updated:** 2026-03-04  
+> **Last Updated:** 2026-03-08  
 > **Purpose:** Comprehensive documentation for LLMs and developers to understand the Shoudagor ERP system architecture, codebase structure, and key implementation details.
 
 ---
@@ -13,6 +13,7 @@
 5. [Database Design](#database-design)
 6. [API Structure](#api-structure)
 7. [Key Business Domains](#key-business-domains)
+   - [7.1 Batch-Based Inventory](#71-batch-based-inventory)
 8. [Elasticsearch Integration](#elasticsearch-integration)
 9. [Frontend Hooks](#frontend-hooks)
 10. [Common Patterns](#common-patterns)
@@ -136,7 +137,7 @@ shoudagor_FE/src/
 ├── index.css            # Global styles
 ├── components/          # Reusable UI components
 │   ├── ui/              # Base UI components (shadcn/ui)
-│   ├── forms/           # Form components (53 files)
+│   ├── forms/           # Form components (57 files)
 │   │   ├── DSRAssignmentForm.tsx
 │   │   ├── DSRDeliveryForm.tsx
 │   │   ├── DSRForm.tsx
@@ -149,7 +150,11 @@ shoudagor_FE/src/
 │   │   ├── SaleForm.tsx
 │   │   ├── SalesDeliveryForm.tsx
 │   │   ├── SalesReturnForm.tsx
-│   │   └── ... (40+ more forms)
+│   │   ├── UnifiedDeliveryForm.tsx
+│   │   ├── StockAdjustmentForm.tsx
+│   │   ├── SalesOrderStatusForm.tsx
+│   │   ├── PurchaseOrderStatusForm.tsx
+│   │   └── ... (45+ more forms)
 │   ├── charts/          # Chart components
 │   ├── shared/          # Shared components
 │   ├── modals/          # Modal dialogs
@@ -159,7 +164,17 @@ shoudagor_FE/src/
 │   ├── SRRoute.tsx      # SR role guard
 │   └── DSRRoute.tsx     # DSR role guard
 ├── pages/               # Page components
-│   ├── dsr/             # DSR management pages
+│   ├── inventory/       # Inventory management pages (NEW)
+│   │   ├── BatchDrillDown.tsx
+│   │   ├── MovementLedger.tsx
+│   │   ├── BatchReconciliation.tsx
+│   │   └── BatchBackfill.tsx
+│   ├── claims/         # Claims & Schemes pages
+│   │   ├── SchemeList.tsx
+│   │   ├── SchemeForm.tsx
+│   │   ├── SchemeLogList.tsx
+│   │   └── ClaimReports.tsx
+│   ├── dsr/            # DSR management pages
 │   │   ├── DeliverySalesRepresentatives.tsx
 │   │   ├── DSRMyAssignments.tsx
 │   │   ├── DSRSOAssignments.tsx
@@ -174,13 +189,16 @@ shoudagor_FE/src/
 │   │   └── PurchaseOrder.tsx
 │   └── ... (other domain pages)
 ├── lib/                 # Utilities and API layer
-│   ├── api/             # API client functions (31 files)
+│   ├── api/             # API client functions (34 files)
 │   │   ├── dsrApi.ts
 │   │   ├── dsrInventoryStockApi.ts
 │   │   ├── dsrSettlementApi.ts
 │   │   ├── dsrStorageApi.ts
+│   │   ├── batchApi.ts (NEW - 18+ functions)
+│   │   ├── reindexApi.ts (NEW)
+│   │   ├── dashboardApi.ts (NEW)
 │   │   ├── reportsApi.ts
-│   │   └── ... (25+ more API files)
+│   │   └── ... (27+ more API files)
 │   ├── schema/          # Zod validation schemas
 │   └── utils.ts         # Utility functions
 ├── contexts/            # React Context providers
@@ -237,6 +255,11 @@ The app uses nested routing with role-based access:
 │   │   │   ├── /warehouse/inventory-stock/transfer
 │   │   │   ├── /warehouse/inventory-stock/adjustment
 │   │   │   └── /warehouse/inventory
+│   │   ├── /inventory/* (Batch Management - NEW)
+│   │   │   ├── /inventory/batch-drilldown
+│   │   │   ├── /inventory/movement-ledger
+│   │   │   ├── /inventory/reconciliation
+│   │   │   └── /inventory/backfill
 │   │   ├── /expenses, /expenses/new
 │   │   ├── /reports
 │   │   │   ├── /reports/inventory
@@ -245,6 +268,11 @@ The app uses nested routing with role-based access:
 │   │   │   │   ├── /reports/inventory/dsi-gmroi
 │   │   │   │   ├── /reports/inventory/dead-stock
 │   │   │   │   └── /reports/inventory/safety-stock
+│   │   │   │   ├── /reports/inventory/stock-by-batch
+│   │   │   │   ├── /reports/inventory/inventory-aging-batch
+│   │   │   │   ├── /reports/inventory/cogs-by-period
+│   │   │   │   ├── /reports/inventory/margin-analysis
+│   │   │   │   └── /reports/inventory/batch-pnl
 │   │   │   ├── /reports/purchaseorder
 │   │   │   │   ├── /reports/purchaseorder/maverick-spend
 │   │   │   │   ├── /reports/purchaseorder/variance
@@ -269,7 +297,9 @@ The app uses nested routing with role-based access:
 │   ├── SuperAdminRoute
 │   │   ├── /super-admin/user-categories, /super-admin/user-categories/new
 │   │   ├── /super-admin/users, /super-admin/users/new
-│   │   └── /super-admin/dsr-storage, /super-admin/dsr-storage/new
+│   │   ├── /super-admin/dsr-storage, /super-admin/dsr-storage/new
+│   │   ├── /super-admin/elasticsearch-reindex
+│   │   └── /super-admin/recent-activities
 │   ├── SRRoute (Sales Rep mobile)
 │   │   ├── /sr/orders, /sr/orders/new
 │   │   ├── /sr/products
@@ -302,14 +332,14 @@ The database uses **PostgreSQL multi-schema architecture** to logically separate
 
 | Schema | Purpose | Key Tables |
 |--------|---------|------------|
-| `security` | User auth, permissions, multi-tenancy | `app_client`, `app_client_company`, `app_user`, `user_category`, `screen`, `module` |
-| `inventory` | Products and stock management | `product`, `product_variant`, `product_category`, `unit_of_measure`, `product_price`, `product_group`, `claim_scheme`, `claim_slab`, `claim_log` |
-| `sales` | Sales orders, customers, SR, DSR | `customer`, `sales_order`, `sales_order_detail`, `sales_representative`, `sr_order`, `beat`, `delivery_sales_representative`, `dsr_so_assignment`, `dsr_payment_settlement`, `sr_disbursement` |
+| `security` | User auth, permissions, multi-tenancy | `app_client`, `app_client_company`, `app_user`, `user_category`, `screen`, `module`, `system_operation` |
+| `inventory` | Products, variants, batches, movements | `product`, `product_variant`, `product_category`, `unit_of_measure`, `product_price`, `product_group`, `batch`, `inventory_movement`, `claim_scheme`, `claim_slab`, `claim_log` |
+| `sales` | Sales orders, customers, SR, DSR | `customer`, `sales_order`, `sales_order_detail`, `sales_representative`, `sr_order`, `beat`, `delivery_sales_representative`, `dsr_so_assignment`, `dsr_payment_settlement`, `sr_disbursement`, `sales_order_batch_allocation` |
 | `procurement` | Purchase orders and suppliers | `supplier`, `purchase_order`, `purchase_order_detail`, `product_order_delivery_detail`, `product_order_payment_detail` |
 | `warehouse` | Storage and stock tracking | `warehouse`, `storage_location`, `inventory_stock`, `stock_transfer`, `dsr_storage`, `dsr_inventory_stock`, `dsr_stock_transfer`, `dsr_stock_transfer_detail` |
 | `billing` | Invoices and expenses | `invoice`, `invoice_detail`, `expenses` |
 | `transaction` | Inventory movements | `inventory_transaction`, `inventory_adjustment`, `adjustment_detail`, `stock_log`, `stock_log_batch` |
-| `settings` | System configuration | `country`, `state`, `city`, `currency` |
+| `settings` | System configuration | `country`, `state`, `city`, `currency`, `company_inventory_setting` |
 
 ### Common Mixins (app/models/mixins.py)
 
@@ -540,6 +570,103 @@ This is a **newly implemented module** for managing promotional schemes and clai
 **Frontend Forms:**
 - `SchemeForm.tsx` - Create/edit schemes with slabs
 - `SchemeList.tsx`, `SchemeLogList.tsx`, `ClaimReports.tsx` - List and report views
+
+### 1.2 Batch-Based Inventory
+
+**Location:** `app/models/batch_models.py`, `app/api/inventory/batch.py`, `app/services/inventory/`
+
+This is a **major new feature** implementing batch-level inventory tracking with full cost traceability:
+
+| Entity | Description |
+|--------|-------------|
+| **Batch** | Represents a group of inventory units received together with common cost. Tracks product, variant, quantity received vs on hand, unit cost, supplier, lot number, status (active/depleted/expired/returned/quarantined), location, source type |
+| **InventoryMovement** | Immutable ledger recording every stock change with quantity (positive=inbound, negative=outbound), unit cost locked at transaction time, reference to source document |
+| **CompanyInventorySetting** | Company-level inventory configuration controlling valuation mode (FIFO, LIFO, WEIGHTED_AVG) and batch tracking enabled flag |
+| **SalesOrderBatchAllocation** | Links sales order details to allocated batches, enabling return processing and cost traceability |
+
+**Batch Fields:**
+- `batch_id` - Unique identifier
+- `product_id`, `variant_id` - Product linkage
+- `qty_received` - Original quantity received
+- `qty_on_hand` - Current quantity available
+- `unit_cost` - Cost per unit at receipt time
+- `received_date` - Date of receipt
+- `supplier_id` - Source supplier (for purchases)
+- `lot_number` - Optional lot/serial number
+- `status` - active, depleted, expired, returned, quarantined
+- `location_id` - Storage location
+- `purchase_order_detail_id` - Link to PO detail
+- `source_type` - purchase, return, adjustment, transfer, synthetic
+- `is_synthetic` - Indicates backfilled batches
+
+**Movement Types:**
+- `IN` - Inbound (purchases, returns, transfers in)
+- `OUT` - Outbound (sales, transfers out)
+- `RETURN_IN` - Returned to inventory
+- `RETURN_OUT` - Returned out (to supplier)
+- `ADJUSTMENT` - Stock correction
+- `TRANSFER_IN`, `TRANSFER_OUT` - Location transfers
+- `OPENING_BALANCE`, `BACKFILL` - Initial/migration movements
+
+**Valuation Modes:**
+- **FIFO** (First In, First Out) - Default
+- **LIFO** (Last In, First Out)
+- **WEIGHTED_AVG** (Weighted Average Cost)
+
+**Key Services:**
+- `BatchAllocationService` (`app/services/inventory/batch_allocation_service.py`):
+  - Handles batch allocation for sales orders using configured valuation mode
+  - Processes sales returns with batch traceability
+  - Supports partial allocations and split shipments
+  
+- `BackfillService` (`app/services/inventory/backfill_service.py`):
+  - Creates synthetic batches from historical PO deliveries
+  - Reconciles batch totals with legacy inventory_stock table
+  - Backfills sales allocations for historical sales
+  - Supports DRY RUN mode for safe migration
+
+- `CompanyInventorySettingService` (`app/services/settings/company_inventory_setting_service.py`):
+  - Manages company inventory settings
+  - Controls valuation mode and batch tracking
+
+**Frontend Pages:**
+- `/inventory/batch-drilldown` - View and manage batches with filters, pagination, batch detail modal
+- `/inventory/movement-ledger` - Complete inventory movement history with filtering and source document links
+- `/inventory/reconciliation` - Verify batch data matches inventory stock records
+- `/inventory/backfill` - Migrate historical data (supports DRY RUN mode)
+
+**Batch Reports:**
+- `/reports/inventory/stock-by-batch` - Inventory stock grouped by batches with quantity, cost, age, location
+- `/reports/inventory/inventory-aging-batch` - Aging based on batch received dates (0-30, 31-60, 61-90, 91-180, 180+ days)
+- `/reports/inventory/cogs-by-period` - Cost of Goods Sold grouped by month and product
+- `/reports/inventory/margin-analysis` - Selling price vs batch cost analysis
+- `/reports/inventory/batch-pnl` - Per-batch profit and loss analysis
+
+**API Endpoints:**
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/inventory/batches` | GET, POST | List/create batches |
+| `/inventory/batches/{id}` | GET, PATCH | Get/update batch |
+| `/inventory/settings` | GET, POST | Company inventory settings |
+| `/inventory/movements` | GET, POST | Movement ledger query/create |
+| `/inventory/reconciliation` | GET | Batch vs stock reconciliation |
+| `/inventory/reconciliation/backfill` | POST | Historical data backfill |
+| `/sales/{id}/allocate` | POST | Server-side batch allocation |
+| `/sales/{id}/returns` | POST | Process sales return |
+| `/reports/stock-by-batch` | GET | Stock by batch report |
+| `/reports/inventory-aging` | GET | Batch-based aging report |
+| `/reports/cogs-by-period` | GET | COGS by period report |
+| `/reports/margin-analysis` | GET | Margin analysis report |
+| `/reports/batch-pnl` | GET | Batch P&L report |
+| `/products/{id}/batches` | GET | Product batch drill-down |
+
+**Frontend API:**
+- `batchApi.ts` - All batch-related API functions (18+ functions)
+  - Batch CRUD: `getBatches()`, `getBatch()`, `createBatch()`, `updateBatch()`
+  - Settings: `getCompanyInventorySettings()`, `updateCompanyInventorySettings()`
+  - Movements: `getMovementLedger()`
+  - Reports: `getStockByBatchReport()`, `getInventoryAgingReport()`, `getCOGSByPeriodReport()`, `getBatchPNLReport()`, `getMarginAnalysisReport()`
+  - Reconciliation: `getReconciliationReport()`, `getReconciliationByProduct()`, `runBackfill()`, `runSalesBackfill()`
 
 ### 2. Sales Management
 
@@ -800,6 +927,11 @@ total = sum(effective_qty * unit_price for each detail)
 | **DSI/GMROI** | Inventory efficiency metrics |
 | **Dead Stock** | Slow-moving inventory identification |
 | **Safety Stock** | Safety stock level analysis |
+| **Stock by Batch** | Inventory stock grouped by batches with quantity, cost, age, and location |
+| **Inventory Aging (Batch)** | Inventory aging based on actual batch received dates (0-30, 31-60, 61-90, 91-180, 180+ days) |
+| **COGS by Period** | Cost of Goods Sold grouped by month and product |
+| **Margin Analysis** | Selling price vs batch cost analysis |
+| **Batch P&L** | Per-batch profit and loss analysis |
 
 **Report Methods in `ReportsService`:**
 - `get_inventory_kpi_ribbon_data()` - LIFO-based inventory metrics
@@ -814,7 +946,12 @@ total = sum(effective_qty * unit_price for each detail)
   - `/reports/inventory/valuation`
   - `/reports/inventory/dsi-gmroi`
   - `/reports/inventory/dead-stock`
-  - `/reports/inventory/safety-stock`
+  - `/reports/inventory/safety-stock
+│   │   │   │   │   ├── /reports/inventory/stock-by-batch (NEW)
+│   │   │   │   │   ├── /reports/inventory/inventory-aging-batch (NEW)
+│   │   │   │   │   ├── /reports/inventory/cogs-by-period (NEW)
+│   │   │   │   │   ├── /reports/inventory/margin-analysis (NEW)
+│   │   │   │   │   └── /reports/inventory/batch-pnl (NEW)`
 - `/reports/purchaseorder` - Purchase order reports
   - `/reports/purchaseorder/maverick-spend`
   - `/reports/purchaseorder/variance`
@@ -1209,12 +1346,15 @@ const RouteErrorBoundary = () => {
 | Consolidation logic | `app/services/consolidation_service.py` |
 | Claim/Scheme logic | `app/services/claims/claim_service.py` |
 | Stock Logging / FIFO | `app/services/transaction/stock_log_service.py` |
+| Batch logic | `app/models/batch_models.py`, `app/api/inventory/batch.py`, `app/services/inventory/batch_allocation_service.py` |
+| Batch backfill | `app/services/inventory/backfill_service.py` |
 
 ### Frontend Locations
 
 | To Find... | Look In |
 |------------|---------|
 | Page component | `src/pages/{domain}/` |
+| Batch inventory pages | `src/pages/inventory/` |
 | Claims pages | `src/pages/claims/` |
 | DSR pages | `src/pages/dsr/` |
 | SR order pages | `src/pages/sr-orders/` |
@@ -1222,6 +1362,7 @@ const RouteErrorBoundary = () => {
 | Reusable form | `src/components/forms/` |
 | UI building blocks | `src/components/ui/` (shadcn/ui) |
 | API functions | `src/lib/api/{domain}Api.ts` |
+| Batch API | `src/lib/api/batchApi.ts` (18+ functions) |
 | DSR API | `src/lib/api/dsrApi.ts`, `dsrInventoryStockApi.ts`, `dsrSettlementApi.ts`, `dsrStorageApi.ts` |
 | TypeScript types | `src/types/` or `src/lib/schema/` |
 | React Context | `src/contexts/` |
