@@ -1,6 +1,6 @@
 # Shoudagor Fullstack Project Context
 
-> **Last Updated:** 2026-03-08  
+> **Last Updated:** 2026-03-10  
 > **Purpose:** Comprehensive documentation for LLMs and developers to understand the Shoudagor ERP system architecture, codebase structure, and key implementation details.
 
 ---
@@ -65,14 +65,16 @@ Shoudagor_Fullstack/
 ### Frontend (shoudagor_FE/src/)
 | Component | Technology | Version/Notes |
 |-----------|------------|---------------|
-| **Framework** | React | With TypeScript |
-| **Build Tool** | Vite | Fast development server |
+| **Framework** | React | 19.1.0 with TypeScript 5.8.3 |
+| **Build Tool** | Vite | 7.0.3 with SWC for fast refresh |
 | **Routing** | React Router | v7 |
-| **State Management** | TanStack Query | (React Query) for server state |
+| **State Management** | TanStack Query | v5 for server state |
 | **UI Components** | shadcn/ui | Radix-based components |
-| **Styling** | Tailwind CSS | Utility-first CSS |
-| **Forms** | React Hook Form + Zod | Form validation |
+| **Styling** | Tailwind CSS | 4.1.11 |
+| **Forms** | React Hook Form + Zod | v7 + v4 validation |
 | **Notifications** | Sonner + React Hot Toast | Toast notifications |
+| **Charts** | Recharts | v2.15.4 for data visualization |
+| **File Handling** | xlsx, exceljs, jspdf | For exports |
 
 ---
 
@@ -164,11 +166,13 @@ shoudagor_FE/src/
 │   ├── SRRoute.tsx      # SR role guard
 │   └── DSRRoute.tsx     # DSR role guard
 ├── pages/               # Page components
-│   ├── inventory/       # Inventory management pages (NEW)
+│   ├── inventory/       # Inventory management pages
 │   │   ├── BatchDrillDown.tsx
 │   │   ├── MovementLedger.tsx
 │   │   ├── BatchReconciliation.tsx
-│   │   └── BatchBackfill.tsx
+│   │   ├── BatchBackfill.tsx
+│   │   ├── SalesOrderBatchAllocations.tsx
+│   │   └── StockToBatch.tsx
 │   ├── claims/         # Claims & Schemes pages
 │   │   ├── SchemeList.tsx
 │   │   ├── SchemeForm.tsx
@@ -186,8 +190,54 @@ shoudagor_FE/src/
 │   ├── reports/         # Report pages
 │   │   ├── Reports.tsx
 │   │   ├── Inventory.tsx
-│   │   └── PurchaseOrder.tsx
-│   └── ... (other domain pages)
+│   │   ├── PurchaseOrder.tsx
+│   │   ├── sales/       # Sales reports
+│   │   │   ├── FulfillmentReport.tsx
+│   │   │   ├── FinancialReport.tsx
+│   │   │   ├── InventoryPerformance.tsx
+│   │   │   ├── SalesTeamAnalytics.tsx
+│   │   │   ├── AdvancedInsights.tsx
+│   │   │   ├── ProductSalesAnalysis.tsx
+│   │   │   ├── TerritoryPerformance.tsx
+│   │   │   ├── CustomerActivity.tsx
+│   │   │   ├── PipelineAnalysis.tsx
+│   │   │   └── DemandForecast.tsx
+│   │   ├── purchaseorder/  # Purchase order reports
+│   │   │   ├── MaverickSpend.tsx
+│   │   │   ├── VarianceReport.tsx
+│   │   │   ├── EmergencyOrders.tsx
+│   │   │   ├── CashFlowProjection.tsx
+│   │   │   ├── ABCXYZClassification.tsx
+│   │   │   ├── SupplierConsolidation.tsx
+│   │   │   ├── POProgress.tsx
+│   │   │   └── UninvoicedReceipts.tsx
+│   │   └── inventory/   # Inventory reports
+│   │       ├── WarehouseSummary.tsx
+│   │       ├── InventoryValuation.tsx
+│   │       ├── DSIGmroi.tsx
+│   │       ├── DeadStock.tsx
+│   │       ├── SafetyStock.tsx
+│   │       ├── StockByBatch.tsx
+│   │       ├── InventoryAgingBatch.tsx
+│   │       ├── COGSByPeriod.tsx
+│   │       ├── MarginAnalysis.tsx
+│   │       └── BatchPnL.tsx
+│   ├── super-admin/      # Super admin pages
+│   │   ├── users/
+│   │   ├── user-categories/
+│   │   ├── dsr-storage/
+│   │   └── recent-activities/
+│   ├── dashboard/       # Dashboard pages
+│   ├── sales/           # Sales pages
+│   ├── purchases/       # Purchase pages
+│   ├── customers/       # Customer pages
+│   ├── suppliers/       # Supplier pages
+│   ├── products/        # Product pages
+│   ├── categories/      # Category pages
+│   ├── units/           # Unit pages
+│   ├── expenses/        # Expense pages
+│   ├── warehouse/       # Warehouse pages
+│   └── beats/           # Beat pages
 ├── lib/                 # Utilities and API layer
 │   ├── api/             # API client functions (34 files)
 │   │   ├── dsrApi.ts
@@ -255,11 +305,13 @@ The app uses nested routing with role-based access:
 │   │   │   ├── /warehouse/inventory-stock/transfer
 │   │   │   ├── /warehouse/inventory-stock/adjustment
 │   │   │   └── /warehouse/inventory
-│   │   ├── /inventory/* (Batch Management - NEW)
+│   │   ├── /inventory/* (Batch Management)
 │   │   │   ├── /inventory/batch-drilldown
 │   │   │   ├── /inventory/movement-ledger
 │   │   │   ├── /inventory/reconciliation
-│   │   │   └── /inventory/backfill
+│   │   │   ├── /inventory/backfill
+│   │   │   ├── /inventory/allocations
+│   │   │   └── /inventory/stock-to-batch
 │   │   ├── /expenses, /expenses/new
 │   │   ├── /reports
 │   │   │   ├── /reports/inventory
@@ -333,13 +385,14 @@ The database uses **PostgreSQL multi-schema architecture** to logically separate
 | Schema | Purpose | Key Tables |
 |--------|---------|------------|
 | `security` | User auth, permissions, multi-tenancy | `app_client`, `app_client_company`, `app_user`, `user_category`, `screen`, `module`, `system_operation` |
-| `inventory` | Products, variants, batches, movements | `product`, `product_variant`, `product_category`, `unit_of_measure`, `product_price`, `product_group`, `batch`, `inventory_movement`, `claim_scheme`, `claim_slab`, `claim_log` |
-| `sales` | Sales orders, customers, SR, DSR | `customer`, `sales_order`, `sales_order_detail`, `sales_representative`, `sr_order`, `beat`, `delivery_sales_representative`, `dsr_so_assignment`, `dsr_payment_settlement`, `sr_disbursement`, `sales_order_batch_allocation` |
+| `inventory` | Products, variants, batches, movements | `product`, `product_variant`, `product_category`, `unit_of_measure`, `product_price`, `product_group`, `batch`, `inventory_movement`, `claim_scheme`, `claim_slab`, `claim_log`, `company_inventory_setting` |
+| `sales` | Sales orders, customers, SR, DSR | `customer`, `sales_order`, `sales_order_detail`, `sales_representative`, `sr_order`, `sr_order_detail`, `sr_product_assignment`, `sr_product_assignment_price_history`, `beat`, `delivery_sales_representative`, `dsr_so_assignment`, `dsr_payment_settlement`, `sr_disbursement`, `sales_order_batch_allocation` |
 | `procurement` | Purchase orders and suppliers | `supplier`, `purchase_order`, `purchase_order_detail`, `product_order_delivery_detail`, `product_order_payment_detail` |
-| `warehouse` | Storage and stock tracking | `warehouse`, `storage_location`, `inventory_stock`, `stock_transfer`, `dsr_storage`, `dsr_inventory_stock`, `dsr_stock_transfer`, `dsr_stock_transfer_detail` |
+| `warehouse` | Storage and stock tracking | `warehouse`, `storage_location`, `inventory_stock`, `stock_transfer`, `stock_transfer_details`, `dsr_storage`, `dsr_inventory_stock`, `dsr_stock_transfer`, `dsr_stock_transfer_detail` |
 | `billing` | Invoices and expenses | `invoice`, `invoice_detail`, `expenses` |
 | `transaction` | Inventory movements | `inventory_transaction`, `inventory_adjustment`, `adjustment_detail`, `stock_log`, `stock_log_batch` |
-| `settings` | System configuration | `country`, `state`, `city`, `currency`, `company_inventory_setting` |
+| `settings` | System configuration | `country`, `state`, `city`, `currency`, `app_language`, `time_zone` |
+| `notification` | System notifications | `notification`, `notification_type` |
 
 ### Common Mixins (app/models/mixins.py)
 
@@ -422,6 +475,16 @@ Key fields on `SalesOrderDetail`:
 - `price_difference` - Difference from standard price
 - `sr_id` - FK to SR who created original order
 - `provided_sale_price_to_sr` - Sale price given to SR
+
+### SalesOrderBatchAllocation Fields
+
+Key fields on `SalesOrderBatchAllocation`:
+- `sales_order_id` - Link to sales order
+- `sales_order_detail_id` - Link to sales order detail
+- `batch_id` - Allocated batch
+- `allocated_quantity` - Quantity allocated from this batch
+- `unit_cost` - Cost per unit at time of allocation
+- `allocated_at` - Timestamp of allocation
 
 ### Purchase Order Detail Fields
 
@@ -560,6 +623,11 @@ This is a **newly implemented module** for managing promotional schemes and clai
 
 **Workflow:** `ClaimService.evaluate_pre_claim` calculates benefits during order entry, which are then persisted as `ClaimLog` entries upon order finalization.
 
+**Key Services:**
+- `ClaimService` (`app/services/claims/claim_service.py`): Core claim evaluation logic
+- `ClaimReportService` (`app/services/claims/claim_report_service.py`): Report generation for claims
+- `ClaimExportService` (`app/services/claims/claim_export_service.py`): Export functionality for claim data
+
 **Frontend Pages:**
 - `/claims/schemes` - List all schemes
 - `/claims/schemes/new` - Create new scheme
@@ -618,12 +686,22 @@ This is a **major new feature** implementing batch-level inventory tracking with
   - Handles batch allocation for sales orders using configured valuation mode
   - Processes sales returns with batch traceability
   - Supports partial allocations and split shipments
-  
+   
 - `BackfillService` (`app/services/inventory/backfill_service.py`):
   - Creates synthetic batches from historical PO deliveries
   - Reconciles batch totals with legacy inventory_stock table
   - Backfills sales allocations for historical sales
   - Supports DRY RUN mode for safe migration
+
+- `StockToBatchService` (`app/services/inventory/stock_to_batch_service.py`):
+  - Converts existing inventory stock to batch records
+  - Supports single product/variant conversion
+  - Bulk conversion with unit cost specification
+
+- `StockConsistencyService` (`app/services/inventory/stock_consistency_service.py`):
+  - Verifies batch data matches inventory stock records
+  - Provides reconciliation reports
+  - Identifies discrepancies in stock levels
 
 - `CompanyInventorySettingService` (`app/services/settings/company_inventory_setting_service.py`):
   - Manages company inventory settings
@@ -634,6 +712,8 @@ This is a **major new feature** implementing batch-level inventory tracking with
 - `/inventory/movement-ledger` - Complete inventory movement history with filtering and source document links
 - `/inventory/reconciliation` - Verify batch data matches inventory stock records
 - `/inventory/backfill` - Migrate historical data (supports DRY RUN mode)
+- `/inventory/allocations` - Sales order batch allocations view with batch details per order
+- `/inventory/stock-to-batch` - Convert existing inventory stock to batch records
 
 **Batch Reports:**
 - `/reports/inventory/stock-by-batch` - Inventory stock grouped by batches with quantity, cost, age, location
@@ -651,6 +731,8 @@ This is a **major new feature** implementing batch-level inventory tracking with
 | `/inventory/movements` | GET, POST | Movement ledger query/create |
 | `/inventory/reconciliation` | GET | Batch vs stock reconciliation |
 | `/inventory/reconciliation/backfill` | POST | Historical data backfill |
+| `/inventory/stock-to-batch` | POST | Convert inventory stock to batch |
+| `/inventory/allocations` | GET | Sales order batch allocations |
 | `/sales/{id}/allocate` | POST | Server-side batch allocation |
 | `/sales/{id}/returns` | POST | Process sales return |
 | `/reports/stock-by-batch` | GET | Stock by batch report |
@@ -1348,6 +1430,9 @@ const RouteErrorBoundary = () => {
 | Stock Logging / FIFO | `app/services/transaction/stock_log_service.py` |
 | Batch logic | `app/models/batch_models.py`, `app/api/inventory/batch.py`, `app/services/inventory/batch_allocation_service.py` |
 | Batch backfill | `app/services/inventory/backfill_service.py` |
+| Stock to batch conversion | `app/services/inventory/stock_to_batch_service.py` |
+| Batch reconciliation | `app/services/inventory/stock_consistency_service.py` |
+| Notification logic | `app/services/notification/`, `app/api/notification.py` |
 
 ### Frontend Locations
 
@@ -1364,6 +1449,8 @@ const RouteErrorBoundary = () => {
 | API functions | `src/lib/api/{domain}Api.ts` |
 | Batch API | `src/lib/api/batchApi.ts` (18+ functions) |
 | DSR API | `src/lib/api/dsrApi.ts`, `dsrInventoryStockApi.ts`, `dsrSettlementApi.ts`, `dsrStorageApi.ts` |
+| Notification API | `src/lib/api/notificationApi.ts` |
+| Dashboard API | `src/lib/api/dashboardApi.ts` |
 | TypeScript types | `src/types/` or `src/lib/schema/` |
 | React Context | `src/contexts/` |
 | Custom hooks | `src/hooks/` |
