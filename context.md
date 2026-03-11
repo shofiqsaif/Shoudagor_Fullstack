@@ -1,6 +1,6 @@
 # Shoudagor Fullstack Project Context
 
-> **Last Updated:** 2026-03-10  
+> **Last Updated:** 2026-03-11  
 > **Purpose:** Comprehensive documentation for LLMs and developers to understand the Shoudagor ERP system architecture, codebase structure, and key implementation details.
 
 ---
@@ -14,6 +14,11 @@
 6. [API Structure](#api-structure)
 7. [Key Business Domains](#key-business-domains)
    - [7.1 Batch-Based Inventory](#71-batch-based-inventory)
+   - [7.2 Claims \& Schemes](#72-claims--schemes)
+   - [7.3 SR Price Management](#73-sr-price-management)
+   - [7.4 Notification System](#74-notification-system)
+   - [7.5 Dashboard \& Activity Feed](#75-dashboard--activity-feed)
+   - [7.6 Super Admin Features](#76-super-admin-features)
 8. [Elasticsearch Integration](#elasticsearch-integration)
 9. [Frontend Hooks](#frontend-hooks)
 10. [Common Patterns](#common-patterns)
@@ -107,13 +112,18 @@ The backend strictly follows a **5-Layer Clean Architecture**:
 
 | Directory | Purpose | Key Files |
 |-----------|---------|-----------|
-| `app/api/` | Route handlers organized by domain | `security.py`, `admin.py`, `consolidation.py`, subdirs for each domain |
+| `app/api/` | Route handlers organized by domain | `security.py`, `admin.py`, `consolidation.py`, `claims.py`, subdirs for each domain |
 | `app/api/dsr/` | DSR-specific routes | `delivery_sales_representative.py`, `dsr_payment_settlement.py`, `dsr_so_assignment.py` |
-| `app/api/sr/` | SR-specific routes | SR management, SR orders, assignments |
+| `app/api/sr/` | SR-specific routes | SR management, SR orders, assignments, `sr_product_assignment_price.py` |
+| `app/api/inventory/` | Inventory routes including batch | `batch.py`, `inventory_movement.py` |
 | `app/services/` | Business logic services | Domain-specific service files |
+| `app/services/inventory/` | Inventory services including batch | `batch_allocation_service.py`, `backfill_service.py`, `stock_consistency_service.py`, `stock_to_batch_service.py` |
 | `app/services/dsr/` | DSR business logic | `delivery_sales_representative_service.py`, `dsr_payment_settlement_service.py`, `dsr_so_assignment_service.py` |
+| `app/services/claims/` | Claims business logic | `claim_service.py`, `claim_report_service.py`, `claim_export_service.py` |
+| `app/services/notification/` | Notification services | `notification_service.py`, `notification_generator.py`, `notification_scheduler.py` |
+| `app/services/admin/` | Admin services | `onboarding_service.py`, `reindex_service.py` |
 | `app/repositories/` | Database query abstractions | Mirror service structure |
-| `app/models/` | SQLAlchemy models (DB tables) | `inventory.py`, `sales.py`, `procurement.py`, `warehouse.py`, `billing.py`, etc. |
+| `app/models/` | SQLAlchemy models (DB tables) | `inventory.py`, `sales.py`, `procurement.py`, `warehouse.py`, `billing.py`, `batch_models.py`, `claims.py`, `notification.py`, `admin.py` |
 | `app/schemas/` | Pydantic validation schemas | Create/Update/Read schemas per entity |
 | `app/schemas/dsr/` | DSR-specific schemas | `delivery_sales_representative.py`, `dsr_payment_settlement.py`, `dsr_so_assignment.py` |
 | `app/core/` | Core config, DB connection, security | `config.py`, `database.py`, `security.py` |
@@ -239,16 +249,19 @@ shoudagor_FE/src/
 │   ├── warehouse/       # Warehouse pages
 │   └── beats/           # Beat pages
 ├── lib/                 # Utilities and API layer
-│   ├── api/             # API client functions (34 files)
+│   ├── api/             # API client functions (40+ files)
 │   │   ├── dsrApi.ts
 │   │   ├── dsrInventoryStockApi.ts
 │   │   ├── dsrSettlementApi.ts
 │   │   ├── dsrStorageApi.ts
-│   │   ├── batchApi.ts (NEW - 18+ functions)
-│   │   ├── reindexApi.ts (NEW)
-│   │   ├── dashboardApi.ts (NEW)
+│   │   ├── batchApi.ts
+│   │   ├── claimsApi.ts
+│   │   ├── reindexApi.ts
+│   │   ├── dashboardApi.ts
 │   │   ├── reportsApi.ts
-│   │   └── ... (27+ more API files)
+│   │   ├── srProductAssignmentPriceApi.ts
+│   │   ├── notificationApi.ts
+│   │   └── ... (30+ more API files)
 │   ├── schema/          # Zod validation schemas
 │   └── utils.ts         # Utility functions
 ├── contexts/            # React Context providers
@@ -517,9 +530,9 @@ Key fields on `Invoice`:
 | **Authentication** | `/authentication/` | `POST /login`, `POST /refresh-token` |
 | **Users** | `/users/` | CRUD operations |
 | **Security** | `/security/` | Roles, permissions, screens |
-| **Inventory** | `/inventory/` | Products, variants, categories, units, prices |
-| **Sales** | `/sales/` | Orders, customers, beats |
-| **SR (Sales Rep)** | `/sr/` | SR management, SR orders, assignments |
+| **Inventory** | `/inventory/` | Products, variants, categories, units, prices, batches, movements |
+| **Sales** | `/sales/` | Orders, customers, beats, batch allocation |
+| **SR (Sales Rep)** | `/sr/` | SR management, SR orders, assignments, price management |
 | **DSR (Delivery Rep)** | `/dsr/` | DSR management, SO assignments, settlements |
 | **Procurement** | `/procurement/` | Suppliers, purchase orders, deliveries, payments |
 | **Warehouse** | `/warehouse/` | Storage locations, inventory stock, DSR storage |
@@ -528,6 +541,9 @@ Key fields on `Invoice`:
 | **Reports** | `/reports/` | Inventory KPIs, FIFO aging, purchase order reports |
 | **Consolidation** | `/sales/consolidation/` | SR order consolidation |
 | **Settings** | `/settings/` | Currency, locations |
+| **Notifications** | `/notifications/` | Notification management |
+| **Dashboard** | `/dashboard/` | Recent activities |
+| **Admin** | `/admin/` | Super-admin features, reindexing, onboarding |
 
 ### API Endpoint Patterns
 
@@ -556,9 +572,13 @@ Key fields on `Invoice`:
 | `dsrStorageApi.ts` | DSR | `getDSRStorages()`, `transferStock()` |
 | `inventoryApi.ts` | Warehouse | `getInventoryStock()`, `transferStock()` |
 | `storageLocationsApi.ts` | Warehouse | `getStorageLocations()` |
-| `reportsApi.ts` | Reports | Multiple report endpoints |
+| `batchApi.ts` | Batch Inventory | Batch CRUD, settings, movements, reports, reconciliation |
 | `claimsApi.ts` | Claims | `getSchemes()`, `createScheme()`, `getClaimLogs()` |
+| `reportsApi.ts` | Reports | Multiple report endpoints |
 | `invoiceApi.ts` | Billing | `getInvoices()`, `createInvoice()` |
+| `notificationApi.ts` | Notifications | `getNotifications()`, `markAsRead()` |
+| `dashboardApi.ts` | Dashboard | `getRecentActivities()` |
+| `reindexApi.ts` | Admin | `reindexProducts()`, `reindexCustomers()` |
 | `testUserBasicInfoApi.ts` | Test Accounts | `getOnboardingStatus()`, `submitOnboardingInfo()` |
 
 ---
@@ -749,6 +769,135 @@ This is a **major new feature** implementing batch-level inventory tracking with
   - Movements: `getMovementLedger()`
   - Reports: `getStockByBatchReport()`, `getInventoryAgingReport()`, `getCOGSByPeriodReport()`, `getBatchPNLReport()`, `getMarginAnalysisReport()`
   - Reconciliation: `getReconciliationReport()`, `getReconciliationByProduct()`, `runBackfill()`, `runSalesBackfill()`
+
+### 1.3 SR Price Management
+
+**Location:** `app/api/sr/sr_product_assignment_price.py`, `app/services/sr/`, `app/models/sales.py`
+
+This feature allows administrators to assign custom prices to products for individual Sales Representatives:
+
+| Entity | Description |
+|--------|-------------|
+| **SR_Product_Assignment** | Links products to SRs with custom pricing |
+| **SR_Product_Assignment_Price_History** | Tracks price changes over time |
+
+**Key Features:**
+- Assign specific products to SRs with custom sale prices
+- Track price history for audit and transparency
+- Support for both individual product assignments and bulk assignments
+
+**API Endpoints:**
+- `GET /sr/price-management/` - List all SR price assignments
+- `POST /sr/price-management/` - Create new price assignment
+- `PATCH /sr/price-management/{id}` - Update price assignment
+- `GET /sr/price-management/history/` - Get price change history
+
+**Frontend Pages:**
+- `/sales-representatives/price-management` - Admin view for managing SR prices
+- `/sr/price-management` - SR view for viewing their assigned prices
+- `/sales-representatives/assigned-products` - View products assigned to SRs
+
+**Frontend Components:**
+- `SRPriceHistory.tsx` - View price change history
+- `AssignProductWithPriceModal.tsx` - Modal for assigning products with prices
+- `SRPriceAssignmentForm.tsx` - Form for assigning prices
+
+### 1.4 Notification System
+
+**Location:** `app/models/notification.py`, `app/api/notification.py`, `app/services/notification/`
+
+A comprehensive notification system to alert users about critical events:
+
+| Entity | Description |
+|--------|-------------|
+| **NotificationType** | Defines templates and categories for notifications |
+| **Notification** | Stores notification data, status (read/unread), priority |
+
+**Notification Types:**
+- Low stock alerts
+- Payment reminders
+- Sales order status changes
+- Customer due reminders
+- Expense alerts
+
+**API Endpoints:**
+- `GET /notifications/` - List notifications with filters
+- `GET /notifications/summary` - Get unread count and summary
+- `PATCH /notifications/{id}/read` - Mark as read
+- `PATCH /notifications/read-all` - Mark all as read
+- `DELETE /notifications/{id}` - Delete notification
+
+**Key Services:**
+- `NotificationService` (`app/services/notification/notification_service.py`): CRUD operations
+- `NotificationGenerator` (`app/services/notification/notification_generator.py`): Create notifications
+- `NotificationScheduler` (`app/services/notification/notification_scheduler.py`): Scheduled processing
+
+**Frontend:**
+- `/notifications` - Notification page
+- `NotificationDropdown` - UI component for viewing notifications
+- `useNotifications` hook for state management
+- `notificationApi.ts` - API client
+
+### 1.5 Dashboard & Activity Feed
+
+**Location:** `app/services/dashboard_service.py`, `app/api/dashboard.py`
+
+Recent activity tracking provides visibility into user operations:
+
+**Captured Activities:**
+- Sales Orders (Created, Payment, Delivery)
+- Purchase Orders (Created, Payment, Receipt)
+- SR Disbursements & DSR Settlements
+- Stock Movements (Transfers, Adjustments, DSR Load/Unload)
+- Master Data Changes (Product, Customer, Supplier, etc.)
+
+**Features:**
+- **Performed By:** Tracks the specific user who performed the action
+- **Pagination:** Supports infinite scroll/pagination
+- **Filtering:** Aggregated view of all major system events
+
+**API Endpoints:**
+- `GET /dashboard/activities/` - Get recent activities with pagination
+
+**Frontend Pages:**
+- `/dashboard/recent-activities` - Activity feed page
+
+### 1.6 Super Admin Features
+
+**Location:** `app/api/admin.py`, `app/services/admin/`
+
+Enhanced administrative capabilities for system-wide management:
+
+| Feature | Description |
+|---------|-------------|
+| **SR Management** | List SRs across all companies |
+| **DSR Management** | List DSRs across all companies |
+| **User Management** | User management across companies |
+| **DSR Storage** | Create DSR storage for any company |
+| **Elasticsearch Reindex** | Reindex products, customers, suppliers |
+| **Client Onboarding** | Bulk client onboarding from CSV/Excel |
+| **Recent Activities** | View system-wide activities |
+
+**API Endpoints:**
+- `GET /admin/sr/` - List all SRs (super admin)
+- `GET /admin/dsr/` - List all DSRs (super admin)
+- `GET /admin/users/` - User management
+- `POST /admin/dsr-storage/` - Create DSR storage
+- `POST /admin/reindex/products` - Reindex products
+- `POST /admin/reindex/customers` - Reindex customers
+- `POST /admin/reindex/suppliers` - Reindex suppliers
+- `POST /admin/onboarding/` - Bulk client onboarding
+
+**Key Services:**
+- `OnboardingService` (`app/services/admin/onboarding_service.py`): Process CSV/Excel files
+- `ReindexService` (`app/services/admin/reindex_service.py`): Reindex operations with audit logging
+
+**Frontend Pages:**
+- `/super-admin/users` - User management
+- `/super-admin/user-categories` - Role management
+- `/super-admin/dsr-storage` - DSR storage management
+- `/super-admin/elasticsearch-reindex` - Reindex functionality
+- `/super-admin/recent-activities` - System activity feed
 
 ### 2. Sales Management
 
@@ -1153,47 +1302,6 @@ Elasticsearch connection configured in `app/core/elasticsearch_config.py`
 
 ---
 
-## 🔔 Notification System
-
-**Location:** `app/models/notification.py`, `app/api/notification.py`, `app/services/notification/`
-
-### Overview
-A comprehensive notification system to alert users about critical events (e.g., low stock, pending approvals, order status changes).
-
-### Key Components
-- **Backend:**
-    - `Notification`: Stores notification data, status (read/unread), and priority.
-    - `NotificationType`: Defines templates and categories for notifications.
-    - `NotificationService`: Handles creation and retrieval of notifications.
-- **Frontend:**
-    - `NotificationDropdown`: UI component for viewing and managing notifications.
-    - `useNotifications`: Hook for fetching and managing notification state.
-    - `notificationApi.ts`: API client for notification endpoints.
-    - Accessible via `/notifications` page
-
----
-
-## 📊 Dashboard & Activity Feed
-
-**Location:** `app/services/dashboard_service.py`, `app/api/dashboard.py`
-
-### Recent Activity Feed
-Tracks and displays key business actions in real-time, providing visibility into user operations.
-
-- **Captured Activities:**
-    - Sales Orders (Created, Payment, Delivery)
-    - Purchase Orders (Created, Payment, Receipt)
-    - SR Disbursements & DSR Settlements
-    - Stock Movements (Transfers, Adjustments, DSR Load/Unload)
-    - Master Data Changes (Product, Customer, Supplier, etc.)
-    
-- **Features:**
-    - **Performed By:** Tracks the specific user who performed the action.
-    - **Pagination:** Supports infinite scroll/pagination for traversing history.
-    - **Filtering:** Aggregated view of all major system events.
-
----
-
 ## 🪝 Frontend Hooks
 
 **Location:** `src/hooks/`
@@ -1433,6 +1541,8 @@ const RouteErrorBoundary = () => {
 | Stock to batch conversion | `app/services/inventory/stock_to_batch_service.py` |
 | Batch reconciliation | `app/services/inventory/stock_consistency_service.py` |
 | Notification logic | `app/services/notification/`, `app/api/notification.py` |
+| Admin/Super Admin logic | `app/api/admin.py`, `app/services/admin/` |
+| Test account onboarding | `app/api/test_user_basic_info.py` |
 
 ### Frontend Locations
 
@@ -1441,16 +1551,20 @@ const RouteErrorBoundary = () => {
 | Page component | `src/pages/{domain}/` |
 | Batch inventory pages | `src/pages/inventory/` |
 | Claims pages | `src/pages/claims/` |
+| Settings pages | `src/pages/settings/` |
 | DSR pages | `src/pages/dsr/` |
 | SR order pages | `src/pages/sr-orders/` |
+| SR Price Management | `src/pages/sales-representatives/AdminSRPriceManagement.tsx`, `src/pages/sr-orders/SRPriceManagement.tsx` |
 | Report pages | `src/pages/reports/` |
 | Reusable form | `src/components/forms/` |
 | UI building blocks | `src/components/ui/` (shadcn/ui) |
 | API functions | `src/lib/api/{domain}Api.ts` |
-| Batch API | `src/lib/api/batchApi.ts` (18+ functions) |
+| Batch API | `src/lib/api/batchApi.ts` |
+| Claims API | `src/lib/api/claimsApi.ts` |
 | DSR API | `src/lib/api/dsrApi.ts`, `dsrInventoryStockApi.ts`, `dsrSettlementApi.ts`, `dsrStorageApi.ts` |
 | Notification API | `src/lib/api/notificationApi.ts` |
 | Dashboard API | `src/lib/api/dashboardApi.ts` |
+| SR Price API | `src/lib/api/srProductAssignmentPriceApi.ts` |
 | TypeScript types | `src/types/` or `src/lib/schema/` |
 | React Context | `src/contexts/` |
 | Custom hooks | `src/hooks/` |
@@ -1461,6 +1575,7 @@ const RouteErrorBoundary = () => {
 | Unified Delivery Form | `src/components/forms/UnifiedDeliveryForm.tsx` |
 | Onboarding Gate | `src/components/auth/TestAccountOnboardingGate.tsx` |
 | Consolidated SR Order Details | `src/pages/sr-orders/ViewConsolidatedSROrderDetails.tsx` |
+| Settings Context | `src/contexts/SettingsContext.tsx` |
 
 ### Common Search Patterns
 
@@ -1483,9 +1598,13 @@ const RouteErrorBoundary = () => {
 | `shoudagor_FE/src/App.tsx` | All routes, providers, app structure |
 | `shoudagor_FE/src/lib/api.ts` | Base API client with auth headers |
 | `shoudagor_FE/src/contexts/UserContext.tsx` | User auth state |
+| `shoudagor_FE/src/contexts/SettingsContext.tsx` | Application settings state |
 | `Shoudagor/app/services/consolidation_service.py` | SR order consolidation logic with multi-SR support |
 | `Shoudagor/app/services/reports.py` | Reporting business logic |
+| `Shoudagor/app/services/inventory/batch_allocation_service.py` | Batch allocation for sales orders |
+| `Shoudagor/app/services/claims/claim_service.py` | Claims/schemes evaluation logic |
 | `shoudagor_FE/src/pages/sr-orders/ViewConsolidatedSROrderDetails.tsx` | Detailed SR consolidation view |
+| `shoudagor_FE/src/pages/settings/Settings.tsx` | Unified settings page |
 
 ---
 
