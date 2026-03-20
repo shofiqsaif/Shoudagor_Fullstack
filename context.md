@@ -1,8 +1,8 @@
 # Shoudagor Fullstack Project Context
 
-> **Last Updated:** 2026-03-14  
+> **Last Updated:** 2026-03-20  
 > **Purpose:** Comprehensive documentation for LLMs and developers to understand the Shoudagor ERP system architecture, codebase structure, and key implementation details.
-> **Note:** Updated with analysis of newly implemented features and current codebase state.
+> **Note:** Updated with inventory drift approvals, ES sync status monitoring, background jobs, employee management, and enhanced POS features.
 
 ---
 
@@ -23,6 +23,10 @@
    - [7.7 Product Image Management](#77-product-image-management)
    - [7.8 Advanced Reporting System](#78-advanced-reporting-system)
    - [7.9 Super Admin Features](#79-super-admin-features)
+   - [7.10 Inventory Drift \& Sync](#710-inventory-drift--sync)
+   - [7.11 Elasticsearch Sync Status](#711-elasticsearch-sync-status)
+   - [7.12 Background Jobs](#712-background-jobs)
+   - [7.13 Employee Management](#713-employee-management)
 8. [Elasticsearch Integration](#elasticsearch-integration)
 9. [Frontend Hooks](#frontend-hooks)
 10. [Common Patterns](#common-patterns)
@@ -187,7 +191,8 @@ shoudagor_FE/src/
 │   │   ├── BatchReconciliation.tsx
 │   │   ├── BatchBackfill.tsx
 │   │   ├── SalesOrderBatchAllocations.tsx
-│   │   └── StockToBatch.tsx
+│   │   ├── StockToBatch.tsx
+│   │   └── DriftApprovals.tsx
 │   ├── claims/         # Claims & Schemes pages
 │   │   ├── SchemeList.tsx
 │   │   ├── SchemeForm.tsx
@@ -241,7 +246,14 @@ shoudagor_FE/src/
 │   │   ├── users/
 │   │   ├── user-categories/
 │   │   ├── dsr-storage/
-│   │   └── recent-activities/
+│   │   ├── recent-activities/
+│   │   ├── ElasticsearchReindex.tsx
+│   │   ├── ElasticsearchSyncStatus.tsx
+│   │   └── MiscellaneousOperations.tsx
+│   ├── employees/       # Employee management (routes commented)
+│   │   ├── Users.tsx
+│   │   ├── roles/Roles.tsx
+│   │   └── new/AddEmployee.tsx
 │   ├── dashboard/       # Dashboard pages
 │   ├── sales/           # Sales pages
 │   ├── purchases/       # Purchase pages
@@ -266,6 +278,8 @@ shoudagor_FE/src/
 │   │   ├── reportsApi.ts
 │   │   ├── srProductAssignmentPriceApi.ts
 │   │   ├── notificationApi.ts
+│   │   ├── phoneSuggestionApi.ts
+│   │   ├── miscAdminApi.ts
 │   │   └── ... (30+ more API files)
 │   ├── schema/          # Zod validation schemas
 │   └── utils.ts         # Utility functions
@@ -1051,8 +1065,10 @@ Enhanced administrative capabilities for system-wide management:
 | **User Management** | User management across companies |
 | **DSR Storage** | Create DSR storage for any company |
 | **Elasticsearch Reindex** | Reindex products, customers, suppliers |
+| **Elasticsearch Sync Status** | Monitor ES indexing status, failed queue, retry operations |
 | **Client Onboarding** | Bulk client onboarding from CSV/Excel |
 | **Recent Activities** | View system-wide activities |
+| **Miscellaneous Operations** | Demo data population, system-level operations |
 
 **API Endpoints:**
 - `GET /admin/sr/` - List all SRs (super admin)
@@ -1063,17 +1079,143 @@ Enhanced administrative capabilities for system-wide management:
 - `POST /admin/reindex/customers` - Reindex customers
 - `POST /admin/reindex/suppliers` - Reindex suppliers
 - `POST /admin/onboarding/` - Bulk client onboarding
+- `GET /admin/miscellaneous/populate-complex-demo` - Populate demo data
 
 **Key Services:**
 - `OnboardingService` (`app/services/admin/onboarding_service.py`): Process CSV/Excel files
 - `ReindexService` (`app/services/admin/reindex_service.py`): Reindex operations with audit logging
+- `MiscellaneousAdminService`: Demo data population and system operations
 
 **Frontend Pages:**
 - `/super-admin/users` - User management
 - `/super-admin/user-categories` - Role management
 - `/super-admin/dsr-storage` - DSR storage management
 - `/super-admin/elasticsearch-reindex` - Reindex functionality
+- `/super-admin/elasticsearch-sync-status` - ES sync monitoring and failed queue management
+- `/super-admin/miscellaneous` - Demo data population
 - `/super-admin/recent-activities` - System activity feed
+
+### 1.10 Inventory Drift & Sync
+
+**Location:** `app/services/inventory/inventory_sync_service.py`, `app/services/inventory/stock_consistency_service.py`
+
+The **Inventory Drift & Sync System** ensures consistency between batch records and the legacy `inventory_stock` table:
+
+| Entity | Description |
+|--------|-------------|
+| **InventoryDrift** | Tracks discrepancies between batch qty_on_hand and inventory_stock quantity |
+| **InventoryMigration** | Tracks migration status for batch data |
+| **StockSource** | Enum tracking the source of truth: 'batch' or 'legacy' |
+
+**Key Features:**
+- **Drift Detection**: Automatically detects when batch and inventory_stock quantities don't match
+- **Drift Approval Workflow**: Admin can review and approve drift corrections
+- **Consistency Enforcement**: Prevents operations that would cause inconsistency in batch mode
+- **Stock Source Tracking**: Determines which system (batch or legacy) is authoritative
+
+**Key Services:**
+- `InventorySyncService` (`app/services/inventory/inventory_sync_service.py`):
+  - Centralized sync service for batch inventory operations
+  - `StockSource` enum: `BATCH` or `LEGACY`
+  - `StockChangeContext`: Tracks the context of stock changes
+  - `BatchModeViolationError`: Raised when batch mode rules are violated
+  - `StockConsistencyError`: Raised when consistency check fails
+  - Decorators: `@enforce_batch_mode` for batch-only operations
+
+- `StockConsistencyService` (`app/services/inventory/stock_consistency_service.py`):
+  - Verifies batch data matches inventory_stock records
+  - Provides reconciliation reports
+  - Identifies discrepancies in stock levels
+
+- `InventoryMigrationService` (`app/services/inventory/inventory_migration_service.py`):
+  - Tracks migration status with `MigrationLockError` handling
+  - Manages migration state transitions
+
+**Frontend Pages:**
+- `/inventory/drift-approvals` - Review and approve inventory drift corrections
+- `/inventory/reconciliation` - Batch vs stock reconciliation report
+
+**Frontend Components:**
+- `DriftApprovals.tsx` - Drift approval interface with repair options
+- `BatchReconciliation.tsx` - Reconciliation report with bulk repair
+
+### 1.11 Elasticsearch Sync Status
+
+**Location:** `app/api/admin_miscellaneous.py`, `app/models/admin.py`
+
+The **Elasticsearch Sync Status** system monitors real-time indexing operations:
+
+| Entity | Description |
+|--------|-------------|
+| **FailedIndexQueue** | Tracks failed ES indexing operations for retry |
+| **SyncStatus** | Real-time indexing status dashboard |
+
+**Key Features:**
+- **Real-time Monitoring**: See current ES indexing status
+- **Failed Queue Management**: View and retry failed indexing operations
+- **Audit Logging**: All reindex operations are logged
+
+**Key Services:**
+- `ProductElasticsearchService`: Product indexing with error handling
+- `CustomerElasticsearchService`: Customer indexing
+- `SupplierElasticsearchService`: Supplier indexing
+- `FailedIndexQueue` model tracks: `entity_type`, `entity_id`, `error_message`, `retry_count`, `status`
+
+**API Endpoints:**
+- `GET /admin/miscellaneous/elasticsearch-status` - Get ES sync status
+- `GET /admin/miscellaneous/failed-index-queue` - Get failed queue
+- `POST /admin/miscellaneous/retry-failed-index` - Retry failed indexing
+
+**Frontend Pages:**
+- `/super-admin/elasticsearch-sync-status` - ES sync dashboard with failed queue
+
+**Frontend Components:**
+- `ElasticsearchSyncStatus.tsx` - Sync status dashboard with retry operations
+
+### 1.12 Background Jobs
+
+**Location:** `app/services/inventory/consistency_job.py`, `app/services/notification/notification_scheduler.py`
+
+The system includes **background jobs** for automated operations:
+
+**Consistency Job:**
+- `initialize_consistency_job`: Sets up hourly consistency checks
+- `get_consistency_job`: Retrieves job status
+- Runs hourly to verify batch vs inventory_stock consistency
+
+**Notification Scheduler:**
+- `NotificationScheduler`: Background processing for notifications
+- Scheduled notification delivery and cleanup
+
+**Materialized View Service:**
+- `MaterializedViewRefreshService`: Manages materialized view refresh for optimized queries
+
+### 1.13 Employee Management
+
+**Location:** `app/models/security.py`, `app/api/security.py` (referenced in frontend)
+
+The **Employee Management** system provides comprehensive user/employee handling:
+
+| Entity | Description |
+|--------|-------------|
+| **Employee** | Employee records linked to users |
+| **EmployeeRole** | Role assignments for employees |
+| **EmployeeAttendance** | Attendance tracking |
+
+**Features (Frontend Implementation):**
+- User management with employee profile
+- Role-based access control
+- Employee CRUD operations
+
+**Frontend Pages (Implemented, routes currently commented):**
+- `/users` - User/Employee list
+- `/users/new` - Add new employee
+- `/users/roles` - Role management
+
+**Frontend Components:**
+- `Users.tsx` - Employee list with management
+- `Roles.tsx` - Role management interface
+- `AddEmployee.tsx` - Add employee form
 
 ### 2. Sales Management
 
@@ -1716,8 +1858,11 @@ const RouteErrorBoundary = () => {
 | Batch backfill | `app/services/inventory/backfill_service.py` |
 | Stock to batch conversion | `app/services/inventory/stock_to_batch_service.py` |
 | Batch reconciliation | `app/services/inventory/stock_consistency_service.py` |
+| Inventory drift/sync | `app/services/inventory/inventory_sync_service.py`, `app/services/inventory/stock_consistency_service.py` |
+| Inventory migration | `app/services/inventory/inventory_migration_service.py`, `app/services/inventory/backfill_service.py` |
 | Notification logic | `app/services/notification/`, `app/api/notification.py` |
-| Admin/Super Admin logic | `app/api/admin.py`, `app/services/admin/` |
+| Admin/Super Admin logic | `app/api/admin.py`, `app/api/admin_miscellaneous.py`, `app/services/admin/` |
+| ES sync status | `app/models/admin.py` (FailedIndexQueue), `app/api/admin_miscellaneous.py` |
 | Test account onboarding | `app/api/test_user_basic_info.py` |
 
 ### Frontend Locations
@@ -1735,12 +1880,17 @@ const RouteErrorBoundary = () => {
 | Reusable form | `src/components/forms/` |
 | UI building blocks | `src/components/ui/` (shadcn/ui) |
 | API functions | `src/lib/api/{domain}Api.ts` |
+| ES sync status | `src/pages/super-admin/ElasticsearchSyncStatus.tsx` |
+| Employee management | `src/pages/employees/Users.tsx`, `src/pages/employees/roles/Roles.tsx` |
 | Batch API | `src/lib/api/batchApi.ts` |
 | Claims API | `src/lib/api/claimsApi.ts` |
 | DSR API | `src/lib/api/dsrApi.ts`, `dsrInventoryStockApi.ts`, `dsrSettlementApi.ts`, `dsrStorageApi.ts` |
 | Notification API | `src/lib/api/notificationApi.ts` |
 | Dashboard API | `src/lib/api/dashboardApi.ts` |
 | SR Price API | `src/lib/api/srProductAssignmentPriceApi.ts` |
+| Phone Suggestion API | `src/lib/api/phoneSuggestionApi.ts` |
+| Misc Admin API | `src/lib/api/miscAdminApi.ts` |
+| Activity Config | `src/lib/dashboard/activityConfig.ts` |
 | TypeScript types | `src/types/` or `src/lib/schema/` |
 | React Context | `src/contexts/` |
 | Custom hooks | `src/hooks/` |
@@ -1792,6 +1942,9 @@ const RouteErrorBoundary = () => {
 | `shoudagor_FE/src/pages/reports/` | All 28 report page components |
 | `shoudagor_FE/src/lib/api/reportsApi.ts` | Report API functions |
 | `shoudagor_FE/src/lib/dashboard/activityConfig.ts` | Activity type configuration (30+ types) |
+| `Shoudagor/app/services/inventory/inventory_sync_service.py` | Centralized inventory sync with batch mode enforcement |
+| `shoudagor_FE/src/pages/inventory/DriftApprovals.tsx` | Inventory drift approval workflow |
+| `shoudagor_FE/src/pages/super-admin/ElasticsearchSyncStatus.tsx` | ES sync status monitoring |
 
 ---
 
@@ -1890,4 +2043,4 @@ const RouteErrorBoundary = () => {
 
 ---
 
-*This context document was last updated on 2026-03-14 to reflect current project state and all recently implemented features.*
+*This context document was last updated on 2026-03-20 to reflect current project state and all recently implemented features.*
