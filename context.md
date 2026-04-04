@@ -1,8 +1,8 @@
 # Shoudagor Fullstack Project Context
 
-> **Last Updated:** 2026-03-20  
+> **Last Updated:** 2026-03-31  
 > **Purpose:** Comprehensive documentation for LLMs and developers to understand the Shoudagor ERP system architecture, codebase structure, and key implementation details.
-> **Note:** Updated with inventory drift approvals, ES sync status monitoring, background jobs, employee management, and enhanced POS features.
+> **Note:** Updated with S3 storage service, ES health monitoring, enhanced admin features, and incomplete feature markers (Drafts, Quotations, SalesReturns).
 
 ---
 
@@ -27,6 +27,7 @@
    - [7.11 Elasticsearch Sync Status](#711-elasticsearch-sync-status)
    - [7.12 Background Jobs](#712-background-jobs)
    - [7.13 Employee Management](#713-employee-management)
+   - [7.14 Incomplete Features](#714-incomplete-features-planned)
 8. [Elasticsearch Integration](#elasticsearch-integration)
 9. [Frontend Hooks](#frontend-hooks)
 10. [Common Patterns](#common-patterns)
@@ -256,6 +257,10 @@ shoudagor_FE/src/
 │   │   └── new/AddEmployee.tsx
 │   ├── dashboard/       # Dashboard pages
 │   ├── sales/           # Sales pages
+│   │   ├── Drafts.tsx       # (INCOMPLETE - placeholder only)
+│   │   ├── Quotations.tsx   # (INCOMPLETE - placeholder only)
+│   │   ├── SalesReturns.tsx # (INCOMPLETE - placeholder only)
+│   │   └── PhoneNumberSuggestions.tsx
 │   ├── purchases/       # Purchase pages
 │   ├── customers/       # Customer pages
 │   ├── suppliers/       # Supplier pages
@@ -266,7 +271,7 @@ shoudagor_FE/src/
 │   ├── warehouse/       # Warehouse pages
 │   └── beats/           # Beat pages
 ├── lib/                 # Utilities and API layer
-│   ├── api/             # API client functions (40+ files)
+│   ├── api/             # API client functions (40 files)
 │   │   ├── dsrApi.ts
 │   │   ├── dsrInventoryStockApi.ts
 │   │   ├── dsrSettlementApi.ts
@@ -280,7 +285,34 @@ shoudagor_FE/src/
 │   │   ├── notificationApi.ts
 │   │   ├── phoneSuggestionApi.ts
 │   │   ├── miscAdminApi.ts
-│   │   └── ... (30+ more API files)
+│   │   ├── adjustmentApi.ts
+│   │   ├── appClientsApi.ts
+│   │   ├── authApi.ts
+│   │   ├── beatApi.ts
+│   │   ├── categoryApi.ts
+│   │   ├── customerApi.ts
+│   │   ├── expenseApi.ts
+│   │   ├── expenseCategoryApi.ts
+│   │   ├── inventoryApi.ts
+│   │   ├── invoiceApi.ts
+│   │   ├── onboardingApi.ts
+│   │   ├── productGroupApi.ts
+│   │   ├── productPricesApi.ts
+│   │   ├── productsApi.ts
+│   │   ├── productVariantApi.ts
+│   │   ├── purchaseApi.ts
+│   │   ├── salesApi.ts
+│   │   ├── salesRepresentativeApi.ts
+│   │   ├── srOrderApi.ts
+│   │   ├── storageLocationsApi.ts
+│   │   ├── supplierApi.ts
+│   │   ├── testUserBasicInfoApi.ts
+│   │   ├── unitOfMeasure.ts
+│   │   ├── userApi.ts
+│   │   ├── userCategoryApi.ts
+│   │   ├── utils.ts
+│   │   ├── warehousesApi.ts
+│   │   └── ... (additional specialized API files)
 │   ├── schema/          # Zod validation schemas
 │   └── utils.ts         # Utility functions
 ├── contexts/            # React Context providers
@@ -622,6 +654,9 @@ Key fields on `Invoice`:
 **Key Fields:**
 - `reorder_level` - Minimum stock level before reordering
 - `safety_stock` - Buffer stock to prevent stockouts
+
+**Storage Service:**
+- **S3Service** (`app/services/storage/s3_service.py`): S3 integration for product variant image storage with presigned URL generation
 
 **Frontend Pages:**
 - `/products` - Product list with search (Elasticsearch)
@@ -1054,7 +1089,7 @@ GET /api/company/reports/batch-pnl/
 
 ### 1.9 Super Admin Features
 
-**Location:** `app/api/admin.py`, `app/services/admin/`
+**Location:** `app/api/admin.py`, `app/api/admin_miscellaneous.py`, `app/services/admin/`
 
 Enhanced administrative capabilities for system-wide management:
 
@@ -1065,6 +1100,7 @@ Enhanced administrative capabilities for system-wide management:
 | **User Management** | User management across companies |
 | **DSR Storage** | Create DSR storage for any company |
 | **Elasticsearch Reindex** | Reindex products, customers, suppliers |
+| **Elasticsearch Health** | Check ES cluster health status, index stats |
 | **Elasticsearch Sync Status** | Monitor ES indexing status, failed queue, retry operations |
 | **Client Onboarding** | Bulk client onboarding from CSV/Excel |
 | **Recent Activities** | View system-wide activities |
@@ -1078,6 +1114,10 @@ Enhanced administrative capabilities for system-wide management:
 - `POST /admin/reindex/products` - Reindex products
 - `POST /admin/reindex/customers` - Reindex customers
 - `POST /admin/reindex/suppliers` - Reindex suppliers
+- `GET /admin/elasticsearch/health` - Check ES cluster health
+- `GET /admin/elasticsearch/sync-status` - Get ES sync status
+- `POST /admin/elasticsearch/retry-failed` - Retry failed indexing
+- `GET /admin/elasticsearch/failed-queue` - View failed queue
 - `POST /admin/onboarding/` - Bulk client onboarding
 - `GET /admin/miscellaneous/populate-complex-demo` - Populate demo data
 
@@ -1190,7 +1230,7 @@ The system includes **background jobs** for automated operations:
 **Materialized View Service:**
 - `MaterializedViewRefreshService`: Manages materialized view refresh for optimized queries
 
-### 1.13 Employee Management
+### 1.15 Employee Management
 
 **Location:** `app/models/security.py`, `app/api/security.py` (referenced in frontend)
 
@@ -1216,6 +1256,24 @@ The **Employee Management** system provides comprehensive user/employee handling
 - `Users.tsx` - Employee list with management
 - `Roles.tsx` - Role management interface
 - `AddEmployee.tsx` - Add employee form
+
+### 1.14 Incomplete Features (Planned)
+
+**Location:** `src/pages/drafts/`, `src/pages/Quotations.tsx`, `src/pages/SalesReturns.tsx`
+
+The following features have placeholder implementations and are marked as incomplete:
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **Sales Drafts** | INCOMPLETE | Draft sales orders that can be converted to completed sales |
+| **Quotations** | INCOMPLETE | Price quotations for customers with validity periods |
+| **Sales Returns** | INCOMPLETE | Customer returns and refunds management |
+
+**Implementation Notes:**
+- Routes are currently commented out in `App.tsx`
+- Frontend components exist as placeholders with full implementation scaffolding
+- Backend support exists via SalesOrder with `type` field ('draft', 'quotation', 'sale')
+- Full implementation would require backend API endpoints and form components
 
 ### 2. Sales Management
 
@@ -1945,6 +2003,7 @@ const RouteErrorBoundary = () => {
 | `Shoudagor/app/services/inventory/inventory_sync_service.py` | Centralized inventory sync with batch mode enforcement |
 | `shoudagor_FE/src/pages/inventory/DriftApprovals.tsx` | Inventory drift approval workflow |
 | `shoudagor_FE/src/pages/super-admin/ElasticsearchSyncStatus.tsx` | ES sync status monitoring |
+| `Shoudagor/app/services/storage/s3_service.py` | S3 storage service for product images |
 
 ---
 
@@ -2043,4 +2102,4 @@ const RouteErrorBoundary = () => {
 
 ---
 
-*This context document was last updated on 2026-03-20 to reflect current project state and all recently implemented features.*
+*This context document was last updated on 2026-03-31 to reflect current project state and all recently implemented features.*
