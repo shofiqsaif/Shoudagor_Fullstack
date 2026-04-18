@@ -1,8 +1,8 @@
 # Shoudagor Fullstack Project Context
 
-> **Last Updated:** 2026-03-31  
+> **Last Updated:** 2026-04-15  
 > **Purpose:** Comprehensive documentation for LLMs and developers to understand the Shoudagor ERP system architecture, codebase structure, and key implementation details.
-> **Note:** Updated with S3 storage service, ES health monitoring, enhanced admin features, and incomplete feature markers (Drafts, Quotations, SalesReturns).
+> **Note:** Updated with Admin Dashboard KPIs (SR/DSR), Pending Customer Workflow, SR Program Reports API, DSR Reports, and Dashboard enhancements (April 7-15, 2026). Previous updates include SR Reports System, SR Program Workflow, Inventory Reports (10 types), Product Image Gallery (April 1-7, 2026).
 
 ---
 
@@ -25,9 +25,13 @@
    - [7.9 Super Admin Features](#79-super-admin-features)
    - [7.10 Inventory Drift \& Sync](#710-inventory-drift--sync)
    - [7.11 Elasticsearch Sync Status](#711-elasticsearch-sync-status)
-   - [7.12 Background Jobs](#712-background-jobs)
-   - [7.13 Employee Management](#713-employee-management)
-   - [7.14 Incomplete Features](#714-incomplete-features-planned)
+   - [7.12 SR Reports System](#712-sr-reports-system-new)
+   - [7.13 SR Program Workflow](#713-sr-program-workflow-new)
+   - [7.14 Inventory Reports (10 Types)](#714-inventory-reports-10-types-new)
+   - [7.15 Background Jobs](#715-background-jobs)
+   - [7.16 Employee Management](#716-employee-management)
+   - [7.17 Incomplete Features](#717-incomplete-features-planned)
+   - [7.18 Pending Customer Workflow](#718-pending-customer-workflow-new)
 8. [Elasticsearch Integration](#elasticsearch-integration)
 9. [Frontend Hooks](#frontend-hooks)
 10. [Common Patterns](#common-patterns)
@@ -631,6 +635,11 @@ Key fields on `Invoice`:
 | `dashboardApi.ts` | Dashboard | `getRecentActivities()` |
 | `reindexApi.ts` | Admin | `reindexProducts()`, `reindexCustomers()` |
 | `testUserBasicInfoApi.ts` | Test Accounts | `getOnboardingStatus()`, `submitOnboardingInfo()` |
+| `adminSRDashboardApi.ts` | Dashboard | `getAdminSRDashboardSummary()` - SR KPIs with top performers |
+| `adminDSRDashboardApi.ts` | Dashboard | `getAdminDSRDashboardSummary()` - DSR KPIs with top performers |
+| `dsrReportsApi.ts` | DSR Reports | `getDSRSummaryReport()`, `getDSRLoadingReport()`, `getDSRSOBreakdown()` |
+| `srProgramReportsApi.ts` | SR Program | `getSRProgramWorkflow()`, channel/mapping CRUD |
+| `pendingCustomerApi.ts` | SR Workflow | `getMyPendingCustomers()`, `approvePendingCustomer()` - Customer approval workflow |
 
 ---
 
@@ -915,6 +924,44 @@ Recent activity tracking provides visibility into user operations:
 
 **Frontend Pages:**
 - `/dashboard/recent-activities` - Activity feed page
+- `/` (Admin Dashboard) - Main dashboard with KPIs and draggable widgets
+
+### Admin Dashboard KPIs (NEW - April 2026)
+
+The Admin Dashboard has been enhanced with **KPI visualizations** and **draggable widgets**:
+
+**Dashboard Intelligence Zones:**
+| Zone | Metrics Displayed |
+|------|-------------------|
+| **Financial Pulse** | Revenue, GP%, Collections, Expenses |
+| **Sales Engine** | Orders, Fulfillment Rate, Pipeline |
+| **Inventory Health** | Dead Stock, Safety Stock, Turnover |
+| **Procurement Watch** | PO Status, Supplier Reliability |
+| **Workforce Intelligence** | SR/DSR Performance, Commission |
+| **Customer Intelligence** | Receivables Aging, Churn Risk |
+| **Operational Alerts** | Pending Actions, Low Stock |
+
+**SR Dashboard Summary API:**
+- `GET /sales/sr/admin/dashboard-summary` - Aggregated SR KPIs
+  - SR counts (total, active, inactive)
+  - Order metrics (pending, approved, delivered, cancelled)
+  - Financial data (total revenue, commission earned/paid/pending)
+  - Monthly activity (orders/revenue this month)
+  - Top performing SRs leaderboard
+
+**DSR Dashboard Summary API:**
+- `GET /sales/dsr/dashboard-summary` - Aggregated DSR KPIs
+  - DSR counts (total, active, inactive)
+  - Assignment stats (assigned, in_progress, completed)
+  - Financial totals (payment_on_hand, commission, collections)
+  - Activity monitoring (active 7d/30d)
+  - Top performers by deliveries and collection
+
+**Dashboard Features:**
+- **DraggableDashboard Component:** Users can rearrange widgets, layout persists
+- **Date Range Filtering:** Global date filter affects all KPI widgets
+- **Real-time Updates:** Activity feed shows live operations
+- **Top Performers Leaderboards:** SR and DSR rankings
 
 ### 1.6 Phone Suggestions
 
@@ -1212,7 +1259,220 @@ The **Elasticsearch Sync Status** system monitors real-time indexing operations:
 **Frontend Components:**
 - `ElasticsearchSyncStatus.tsx` - Sync status dashboard with retry operations
 
-### 1.12 Background Jobs
+### 1.12 SR Reports System
+
+**Location:** `app/models/sr_reports.py`, `app/api/sr_reports.py`, `app/services/sr/sr_reports_service.py`
+
+This is a **comprehensive SR financial and operational reporting system** (Implemented April 1-3, 2026):
+
+| Entity | Description |
+|--------|-------------|
+| **ProductDamage** | Damage incidents per product with date, quantity, reason, and damage cost tracking |
+| **DailyCostExpense** | Daily operational expenses (van/fuel, oil changes, labour, office costs, miscellaneous) |
+| **SalesLedger** | Manual Khata-style ledger entries for SR reconciliation and adjustments |
+| **SalesBudget** | Sales targets and budget tracking per product group/category |
+
+**ProductDamage Fields:**
+- `sr_id`, `product_id`, `variant_id` - Links to SR and product
+- `quantity_damaged` - Number of units damaged
+- `damage_date` - Date of incident
+- `reason` - Damage reason (transport, handling, defect, etc.)
+- `damage_cost` - Financial impact of damage
+- `description` - Additional details
+
+**DailyCostExpense Fields:**
+- `sr_id`, `cost_date` - SR and date
+- `van_cost` - Van/vehicle rental or fuel
+- `oil_cost` - Oil/maintenance costs
+- `labour_cost` - Labour charges
+- `office_cost` - Office/administrative costs
+- `other_cost` - Miscellaneous costs
+- `total_cost` - Sum of all costs
+- `notes` - Remarks
+
+**SalesLedger Fields:**
+- `sr_id`, `ledger_date` - SR and date
+- `description` - Transaction description
+- `debit_amount`, `credit_amount` - Ledger amounts
+- `ledger_type` - sales, return, adjustment, expense, commission, etc.
+- `reference_id` - Link to source document
+- `running_balance` - Balance after transaction
+
+**SalesBudget Fields:**
+- `sr_id`, `product_group_id` - SR and product group
+- `budget_qty` - Target quantity
+- `budget_amount` - Target amount in currency
+- `period` - Month or period
+- `year` - Budget year
+- `achieved_qty`, `achieved_amount` - Actual achievement
+
+**API Endpoints (35+ endpoints):**
+```
+POST/GET /sr-reports/damage              - Damage CRUD
+GET /sr-reports/damage/report             - Filtered damage report
+GET /sr-reports/damage/{id}               - Get single damage record
+PATCH /sr-reports/damage/{id}             - Update damage
+DELETE /sr-reports/damage/{id}            - Delete damage
+
+POST/GET /sr-reports/daily-cost           - Daily cost CRUD
+GET /sr-reports/cost-profit               - Aggregated cost/profit report
+GET /sr-reports/cost-profit/{sr_id}       - SR-specific cost/profit
+
+POST/GET /sr-reports/ledger               - Ledger (Khata) CRUD
+GET /sr-reports/ledger/{ledger_id}        - Get single ledger entry
+GET /sr-reports/reconciliation            - SR orders vs Khata reconciliation
+GET /sr-reports/undelivery                - Undelivery analytics
+GET /sr-reports/do-cash                   - DO cash tracking
+
+POST/GET /sr-reports/budget               - Budget CRUD
+GET /sr-reports/group-report              - Group-wise analytics
+GET /sr-reports/do-tracking               - Delivery order tracking
+GET /sr-reports/slow-moving               - Slow-moving inventory analysis
+GET /sr-reports/daily-report              - Consolidated daily report
+```
+
+**Key Services:**
+- `SRReportsService` - Damage, cost, ledger, budget CRUD and report generation
+- Methods include: `record_damage()`, `calculate_daily_cost()`, `reconcile_ledger()`, `get_slow_moving_items()`, `calculate_group_performance()`
+
+**Frontend Pages:**
+- `/reports/damage` - Record and manage product damage with edit/delete capability
+- `/reports/cost-profit` - Daily operational costs with cost tracking and editing
+- `/reports/daily` - Consolidated daily sales report
+- `/reports/budget` - Sales budget setup and tracking
+- `/reports/reconciliation` - SR orders vs Khata (manual ledger) reconciliation
+- `/reports/do-tracking` - Delivery order tracking and status
+- `/reports/ledger` - Ledger (Khata) CRUD with date/type filtering
+- `/reports/slow-moving` - Slow-moving inventory analysis
+- `/reports/group` - Group-wise sales analytics and performance
+
+**Frontend Components:**
+- `DamageReport.tsx` - Damage recording and management
+- `CostProfitReport.tsx` - Cost tracking and profit analysis
+- `DailyReport.tsx` - Comprehensive daily consolidated view
+- `BudgetManagement.tsx` - Budget creation and tracking
+- `ReconciliationReport.tsx` - SR vs Khata reconciliation interface
+- `DOTrackingReport.tsx` - Delivery order status tracking
+- `LedgerManagement.tsx` - Manual ledger entry and management
+- `SlowMovingReport.tsx` - Slow-moving product analysis
+- `GroupReport.tsx` - Group-wise performance metrics
+
+### 1.13 SR Program Workflow
+
+**Location:** `app/models/sr_program.py`, `app/api/sr_program_admin.py`, `app/services/sr/sr_program_service.py`
+
+This is a **channel-based SR program management system** (Implemented April 1-3, 2026):
+
+| Entity | Description |
+|--------|-------------|
+| **SRProgramChannel** | Channel master defining sales channels (Muslim Bakary, Traders, Auto, etc.) |
+| **SRProgramCustomerChannel** | Mapping of customers to specific sales channels |
+
+**SRProgramChannel Fields:**
+- `channel_name` - Channel identifier (Muslim Bakary, Traders, Auto, etc.)
+- `description` - Channel description
+- `is_active` - Active/inactive status
+- `created_at`, `updated_at` - Timestamps
+
+**SRProgramCustomerChannel Fields:**
+- `customer_id` - Customer in the channel
+- `channel_id` - Assigned channel
+- `assigned_date` - When customer was assigned
+- `is_active` - Active assignment
+
+**API Endpoints:**
+```
+GET /sr-program/channels                         - List all channels
+POST /sr-program/channels                        - Create channel
+GET /sr-program/channels/{channel_id}            - Get channel details
+PATCH /sr-program/channels/{channel_id}          - Update channel
+DELETE /sr-program/channels/{channel_id}         - Delete channel
+
+GET /sr-program/channels/mappings                - List all customer-channel mappings
+POST /sr-program/channels/mappings               - Create mapping
+POST /sr-program/channels/mappings/bulk          - Bulk assign channels
+
+GET /sr-program/channels/unmapped-customers      - Find customers without channel assignment
+```
+
+**SR Program Workflow Dashboard:**
+A 7-block workflow visualization showing:
+1. **Pending Orders** - SR orders awaiting consolidation
+2. **Channel Performance** - By-channel sales metrics
+3. **Customer Assignment** - Channel allocation status
+4. **Budget Tracking** - Budget vs actual by channel
+5. **Damage Summary** - Product damage incidents
+6. **Cost Analysis** - Daily operational costs
+7. **Slow Movers** - Slow-moving items by channel
+
+**Frontend Pages:**
+- `/reports/sr-program` - SR Program Workflow dashboard with 7-block visualization
+- `/reports/sr-program/admin` - Channel management and customer-channel mapping interface
+
+**Frontend Components:**
+- `SRProgramWorkflow.tsx` - Dashboard showing 7-block workflow with metrics
+- `SRProgramChannelAdmin.tsx` - Channel CRUD and customer mapping UI
+
+### 1.14 Inventory Reports (10 Types)
+
+**Location:** `app/api/reports.py`, `app/services/reports_inventory.py`, `shoudagor_FE/src/pages/reports/inventory/`
+
+This is a **comprehensive inventory analytics system** extending the existing 28 reports with 10 specialized inventory-focused reports (Implemented April 1-3, 2026):
+
+#### Inventory Report Types
+
+| Report | Purpose | Key Metrics |
+|--------|---------|-------------|
+| **Warehouse Summary** | Stock position per warehouse/location | Total qty, value, occupancy %, turnover |
+| **Inventory Valuation** | Financial inventory valuations (FIFO/LIFO/WAC) | Total value, method comparison |
+| **DSI/GMROI** | Days Sales of Inventory & Gross Margin ROI | DSI days, GMROI %, efficiency metrics |
+| **Dead Stock** | Zero-movement inventory identification | Zero-qty items, age analysis, value |
+| **Safety Stock** | Reorder points and safety stock levels | Safety qty, reorder points, min stock |
+| **Stock by Batch** | Inventory stock grouped by batches | Qty per batch, unit cost, age, location |
+| **Inventory Aging (Batch)** | Batch-based aging in buckets | 0-30, 31-60, 61-90, 91-180, 180+ days |
+| **COGS by Period** | Cost of Goods Sold analysis | COGS by month/quarter, trends |
+| **Margin Analysis** | Selling price vs batch cost | Margin per batch, margin % by product |
+| **Batch P&L** | Per-batch profit and loss | Revenue, COGS, profit per batch |
+
+**API Endpoints:**
+```
+GET /reports/inventory/warehouse-summary    - Warehouse/location stock position
+GET /reports/inventory/valuation            - Inventory financial valuation
+GET /reports/inventory/dsi-gmroi            - DSI & GMROI metrics
+GET /reports/inventory/dead-stock           - Zero-movement items
+GET /reports/inventory/safety-stock         - Reorder & safety stock
+GET /reports/inventory/stock-by-batch       - Stock drill-down by batch
+GET /reports/inventory/inventory-aging-batch - Batch aging buckets
+GET /reports/inventory/cogs-by-period       - COGS analysis by period
+GET /reports/inventory/margin-analysis      - Margin analytics
+GET /reports/inventory/batch-pnl            - Per-batch P&L
+```
+
+**Frontend Pages:**
+- `/reports/inventory/warehouse-summary` - Warehouse stock position visualization
+- `/reports/inventory/valuation` - Inventory valuation with method selection
+- `/reports/inventory/dsi-gmroi` - Days Sales of Inventory & GMROI metrics
+- `/reports/inventory/dead-stock` - Dead stock identification
+- `/reports/inventory/safety-stock` - Safety stock analysis
+- `/reports/inventory/stock-by-batch` - Batch-level stock drill-down
+- `/reports/inventory/inventory-aging-batch` - Batch aging report with aging buckets
+- `/reports/inventory/cogs-by-period` - COGS by period visualization
+- `/reports/inventory/margin-analysis` - Margin analysis dashboard
+- `/reports/inventory/batch-pnl` - Batch profit and loss analysis
+
+**Frontend Components:**
+- `WarehouseSummary.tsx` - Warehouse stock position
+- `InventoryValuation.tsx` - Valuation report with calculations
+- `DSIGmroi.tsx` - DSI and GMROI metrics
+- `DeadStock.tsx` - Dead stock analysis
+- `SafetyStock.tsx` - Safety stock levels
+- `StockByBatch.tsx` - Batch-level stock detail
+- `InventoryAgingBatch.tsx` - Batch aging analysis
+- `COGSByPeriod.tsx` - COGS by period breakdown
+- `MarginAnalysis.tsx` - Margin analysis
+- `BatchPnL.tsx` - Batch P&L analysis
+
+### 1.15 Background Jobs
 
 **Location:** `app/services/inventory/consistency_job.py`, `app/services/notification/notification_scheduler.py`
 
@@ -1230,7 +1490,7 @@ The system includes **background jobs** for automated operations:
 **Materialized View Service:**
 - `MaterializedViewRefreshService`: Manages materialized view refresh for optimized queries
 
-### 1.15 Employee Management
+### 1.16 Employee Management
 
 **Location:** `app/models/security.py`, `app/api/security.py` (referenced in frontend)
 
@@ -1257,7 +1517,7 @@ The **Employee Management** system provides comprehensive user/employee handling
 - `Roles.tsx` - Role management interface
 - `AddEmployee.tsx` - Add employee form
 
-### 1.14 Incomplete Features (Planned)
+### 1.17 Incomplete Features (Planned)
 
 **Location:** `src/pages/drafts/`, `src/pages/Quotations.tsx`, `src/pages/SalesReturns.tsx`
 
@@ -1274,6 +1534,56 @@ The following features have placeholder implementations and are marked as incomp
 - Frontend components exist as placeholders with full implementation scaffolding
 - Backend support exists via SalesOrder with `type` field ('draft', 'quotation', 'sale')
 - Full implementation would require backend API endpoints and form components
+
+### 1.18 Pending Customer Workflow (NEW)
+
+**Location:** `app/models/sales.py` (PendingCustomer), `app/api/sr/pending_customer.py`, `app/services/sr/pending_customer_service.py`, `shoudagor_FE/src/lib/api/pendingCustomerApi.ts`
+
+This feature allows **Sales Representatives** to submit new customer requests that require **admin approval** before being added to the system:
+
+| Entity | Description |
+|--------|-------------|
+| **PendingCustomer** | SR-submitted customer data with approval workflow |
+
+**PendingCustomer Fields:**
+- `customer_name`, `customer_code` - Customer identification
+- `contact_person`, `phone`, `email` - Contact information
+- `address`, `country_id`, `state_id`, `city_id` - Address details
+- `beat_id` - Assigned beat/territory
+- `sr_id` - SR who submitted the request
+- `status` - 'pending', 'approved', 'rejected'
+- `reviewed_by` - Admin who processed the request
+- `reviewed_at` - Timestamp of approval/rejection
+- `rejection_reason` - Reason if rejected
+
+**Workflow:**
+1. SR submits new customer via mobile app (`POST /sales/sales-representative/pending-customers/`)
+2. Admin views all pending customers (`GET /sales/sales-representative/admin/pending-customers/`)
+3. Admin approves (creates actual Customer record) or rejects with reason
+4. SR sees status update on their submitted customers
+
+**API Endpoints:**
+```
+# SR Operations
+GET  /sales/sales-representative/pending-customers/     - List my pending customers
+POST /sales/sales-representative/pending-customers/     - Submit new customer
+GET  /sales/sales-representative/pending-customers/{id} - Get specific submission
+PATCH /sales/sales-representative/pending-customers/{id} - Update my submission
+DELETE /sales/sales-representative/pending-customers/{id} - Cancel my submission
+
+# Admin Operations
+GET  /sales/sales-representative/admin/pending-customers/     - List all pending (admin)
+GET  /sales/sales-representative/admin/pending-customers/{id}   - Get specific (admin)
+POST /sales/sales-representative/admin/pending-customers/{id}/approve - Approve customer
+POST /sales/sales-representative/admin/pending-customers/{id}/reject  - Reject customer
+```
+
+**Frontend Pages:**
+- `/sr/pending-customers` - SR view for submitting/managing pending customers
+- Admin approval interface in SR management section
+
+**Frontend API:**
+- `pendingCustomerApi.ts` - Full CRUD for SR operations, approval/rejection for admin
 
 ### 2. Sales Management
 
@@ -1907,8 +2217,11 @@ const RouteErrorBoundary = () => {
 | Database migrations | `alembic/versions/` |
 | DSR logic | `app/api/dsr/`, `app/services/dsr/`, `app/schemas/dsr/` |
 | SR logic | `app/api/sr/`, `app/services/sr/`, `app/schemas/sr/` |
+| SR Reports (NEW - April 2026) | `app/models/sr_reports.py`, `app/api/sr_reports.py`, `app/services/sr/sr_reports_service.py` |
+| SR Program Workflow (NEW - April 2026) | `app/models/sr_program.py`, `app/api/sr_program_admin.py`, `app/services/sr/sr_program_service.py` |
 | Claims logic | `app/api/claims.py`, `app/services/claims/`, `app/schemas/claims.py` |
 | Reports logic | `app/services/reports.py`, `app/schemas/reports.py`, `app/repositories/reports/` |
+| Inventory Reports (NEW - April 2026) | `app/api/reports.py` (10 endpoints), `app/services/reports_inventory.py` |
 | Consolidation logic | `app/services/consolidation_service.py` |
 | Claim/Scheme logic | `app/services/claims/claim_service.py` |
 | Stock Logging / FIFO | `app/services/transaction/stock_log_service.py` |
@@ -1922,6 +2235,11 @@ const RouteErrorBoundary = () => {
 | Admin/Super Admin logic | `app/api/admin.py`, `app/api/admin_miscellaneous.py`, `app/services/admin/` |
 | ES sync status | `app/models/admin.py` (FailedIndexQueue), `app/api/admin_miscellaneous.py` |
 | Test account onboarding | `app/api/test_user_basic_info.py` |
+| Admin SR Dashboard Service (NEW) | `app/services/sr/admin_sr_dashboard_service.py` - SR KPI aggregation |
+| Admin DSR Dashboard Service (NEW) | `app/services/dsr/admin_dsr_dashboard_service.py` - DSR KPI aggregation |
+| Pending Customer Service (NEW) | `app/services/sr/pending_customer_service.py` - Customer approval workflow |
+| DSR Reports API (NEW) | `app/api/dsr_reports.py` - DSR summary, loading, SO breakdown |
+| SR Program Workflow API (NEW) | `app/api/sr_program_admin.py` - Channel management |
 
 ### Frontend Locations
 
@@ -1933,6 +2251,9 @@ const RouteErrorBoundary = () => {
 | Settings pages | `src/pages/settings/` |
 | DSR pages | `src/pages/dsr/` |
 | SR order pages | `src/pages/sr-orders/` |
+| SR Reports Pages (NEW - April 2026) | `src/pages/reports/{DamageReport,CostProfitReport,DailyReport,BudgetManagement,ReconciliationReport,DOTrackingReport,LedgerManagement,SlowMovingReport,GroupReport}.tsx` |
+| SR Program Workflow (NEW - April 2026) | `src/pages/reports/{SRProgramWorkflow,SRProgramChannelAdmin}.tsx` |
+| Inventory Report Pages (10 types, NEW - April 2026) | `src/pages/reports/inventory/{WarehouseSummary,InventoryValuation,DSIGmroi,DeadStock,SafetyStock,StockByBatch,InventoryAgingBatch,COGSByPeriod,MarginAnalysis,BatchPnL}.tsx` |
 | SR Price Management | `src/pages/sales-representatives/AdminSRPriceManagement.tsx`, `src/pages/sr-orders/SRPriceManagement.tsx` |
 | Report pages | `src/pages/reports/` |
 | Reusable form | `src/components/forms/` |
@@ -1942,6 +2263,7 @@ const RouteErrorBoundary = () => {
 | Employee management | `src/pages/employees/Users.tsx`, `src/pages/employees/roles/Roles.tsx` |
 | Batch API | `src/lib/api/batchApi.ts` |
 | Claims API | `src/lib/api/claimsApi.ts` |
+| SR Reports API (NEW - April 2026) | `src/lib/api/srReportsApi.ts` |
 | DSR API | `src/lib/api/dsrApi.ts`, `dsrInventoryStockApi.ts`, `dsrSettlementApi.ts`, `dsrStorageApi.ts` |
 | Notification API | `src/lib/api/notificationApi.ts` |
 | Dashboard API | `src/lib/api/dashboardApi.ts` |
@@ -1958,8 +2280,18 @@ const RouteErrorBoundary = () => {
 | Query client config | `src/lib/queryClient.ts` |
 | Unified Delivery Form | `src/components/forms/UnifiedDeliveryForm.tsx` |
 | Onboarding Gate | `src/components/auth/TestAccountOnboardingGate.tsx` |
+| Product Image Gallery (NEW - April 2026) | `src/components/shared/ProductImageGallery.tsx` |
 | Consolidated SR Order Details | `src/pages/sr-orders/ViewConsolidatedSROrderDetails.tsx` |
 | Settings Context | `src/contexts/SettingsContext.tsx` |
+| DraggableDashboard (NEW) | `src/components/draggable-dashboard.tsx` - Draggable widget layout |
+| Admin SR Dashboard API (NEW) | `src/lib/api/adminSRDashboardApi.ts` - SR KPI data |
+| Admin DSR Dashboard API (NEW) | `src/lib/api/adminDSRDashboardApi.ts` - DSR KPI data |
+| DSR Reports API (NEW) | `src/lib/api/dsrReportsApi.ts` - DSR summary reports |
+| SR Program Reports API (NEW) | `src/lib/api/srProgramReportsApi.ts` - Channel workflow |
+| Pending Customer API (NEW) | `src/lib/api/pendingCustomerApi.ts` - Customer approval workflow |
+| DSR Reports Page (NEW) | `src/pages/reports/DSRReports.tsx` - DSR performance reports |
+| SR Program Workflow Page (NEW) | `src/pages/reports/SRProgramWorkflow.tsx` - 7-block workflow view |
+| SR Program Admin Page (NEW) | `src/pages/reports/SRProgramChannelAdmin.tsx` - Channel management |
 
 ### Common Search Patterns
 
@@ -2004,14 +2336,109 @@ const RouteErrorBoundary = () => {
 | `shoudagor_FE/src/pages/inventory/DriftApprovals.tsx` | Inventory drift approval workflow |
 | `shoudagor_FE/src/pages/super-admin/ElasticsearchSyncStatus.tsx` | ES sync status monitoring |
 | `Shoudagor/app/services/storage/s3_service.py` | S3 storage service for product images |
+| `Shoudagor/app/models/sr_reports.py` | SR Reports models (ProductDamage, Cost, Ledger, Budget) - NEW April 2026 |
+| `Shoudagor/app/api/sr_reports.py` | SR Reports API endpoints (35+) - NEW April 2026 |
+| `Shoudagor/app/services/sr/sr_reports_service.py` | SR Reports business logic - NEW April 2026 |
+| `Shoudagor/app/models/sr_program.py` | SR Program models (Channel, CustomerChannel) - NEW April 2026 |
+| `Shoudagor/app/api/sr_program_admin.py` | SR Program API endpoints - NEW April 2026 |
+| `Shoudagor/app/services/sr/sr_program_service.py` | SR Program business logic - NEW April 2026 |
+| `shoudagor_FE/src/lib/api/srReportsApi.ts` | SR Reports API client (40+ functions) - NEW April 2026 |
+| `shoudagor_FE/src/pages/reports/` | SR Reports pages and Inventory Reports pages (22 new) - NEW April 2026 |
+| `shoudagor_FE/src/pages/reports/inventory/` | 10 Inventory Report pages - NEW April 2026 |
+| `Shoudagor/app/services/sr/admin_sr_dashboard_service.py` | Admin SR Dashboard KPI aggregation - NEW April 2026 |
+| `Shoudagor/app/services/dsr/admin_dsr_dashboard_service.py` | Admin DSR Dashboard KPI aggregation - NEW April 2026 |
+| `Shoudagor/app/services/sr/pending_customer_service.py` | Pending Customer approval workflow - NEW April 2026 |
+| `shoudagor_FE/src/lib/api/adminSRDashboardApi.ts` | Admin SR Dashboard API client - NEW April 2026 |
+| `shoudagor_FE/src/lib/api/adminDSRDashboardApi.ts` | Admin DSR Dashboard API client - NEW April 2026 |
+| `shoudagor_FE/src/lib/api/dsrReportsApi.ts` | DSR Reports API client - NEW April 2026 |
+| `shoudagor_FE/src/lib/api/srProgramReportsApi.ts` | SR Program Reports API client - NEW April 2026 |
+| `shoudagor_FE/src/lib/api/pendingCustomerApi.ts` | Pending Customer API client - NEW April 2026 |
+| `shoudagor_FE/src/pages/reports/DSRReports.tsx` | DSR Reports page - NEW April 2026 |
+| `shoudagor_FE/src/pages/reports/SRProgramWorkflow.tsx` | SR Program 7-block workflow dashboard - NEW April 2026 |
+| `shoudagor_FE/src/components/draggable-dashboard.tsx` | Draggable dashboard layout component - NEW April 2026 |
 
 ---
 
 ##Recent Implementations Summary
 
-### Backend Summary
+### Backend Summary (March 31 - April 7, 2026)
 
-**Total New Implementations Added:**
+**Total New Implementations Added (April 1-3, 2026):**
+- **4 New Models** - SR Reports (ProductDamage, DailyCostExpense, SalesLedger, SalesBudget) + SR Program (SRProgramChannel, SRProgramCustomerChannel)
+- **3 New Services** - SR Reports Service, SR Program Service, Inventory Reports Service
+- **55+ New API Endpoints** - 35+ SR Reports endpoints, 9 SR Program endpoints, 10 Inventory Report endpoints
+- **20+ New Pydantic Schemas** - All new SR Reports and SR Program schemas
+
+**April Implementation Summary:**
+
+| Feature | Models | Services | API Endpoints | Status |
+|---------|--------|----------|---------------|--------|
+| **SR Reports System** | 4 | 1 | 35+ | ✅ 100% |
+| **SR Program Workflow** | 2 | 1 | 9 | ✅ 100% |
+| **Inventory Reports (10 types)** | - | 1 | 10 | ✅ 100% |
+| **Product Image Gallery** | - | - | - | ✅ 100% |
+| **Bulk SR Order Approval** | - | - | - | ✅ 100% |
+
+### Backend Summary (April 7-15, 2026)
+
+**Total New Implementations Added (April 7-15, 2026):**
+- **2 New Services** - Admin SR Dashboard Service, Admin DSR Dashboard Service, Pending Customer Service
+- **10+ New API Endpoints** - SR Dashboard Summary, DSR Dashboard Summary, DSR Reports (3), Pending Customer (6)
+- **5 New Frontend API Files** - adminSRDashboardApi, adminDSRDashboardApi, dsrReportsApi, srProgramReportsApi, pendingCustomerApi
+
+**April 7-15 Implementation Summary:**
+
+| Feature | Models | Services | API Endpoints | Status |
+|---------|--------|----------|---------------|--------|
+| **Admin SR Dashboard KPIs** | - | 1 | 1 | ✅ 100% |
+| **Admin DSR Dashboard KPIs** | - | 1 | 1 | ✅ 100% |
+| **Pending Customer Workflow** | 1 | 1 | 10 | ✅ 100% |
+| **DSR Reports** | - | - | 3 | ✅ 100% |
+| **SR Program Reports API** | - | - | 1 | ✅ 100% |
+| **DraggableDashboard Component** | - | - | - | ✅ 100% |
+
+### Frontend Summary (April 1-3, 2026)
+
+**New Pages Added:**
+- **SR Reports Pages (9):** DamageReport, CostProfitReport, DailyReport, BudgetManagement, ReconciliationReport, DOTrackingReport, LedgerManagement, SlowMovingReport, GroupReport
+- **SR Program Pages (2):** SRProgramWorkflow, SRProgramChannelAdmin
+- **Inventory Report Pages (10):** WarehouseSummary, InventoryValuation, DSIGmroi, DeadStock, SafetyStock, StockByBatch, InventoryAgingBatch, COGSByPeriod, MarginAnalysis, BatchPnL
+- **DSR Report Page (1):** DSRReports
+
+**New Components & UI:**
+- Extended API client with `srReportsApi.ts` (40+ functions)
+- ProductImageGallery with S3 integration and drag-and-drop
+- Bulk selection in UnconsolidatedSROrders
+
+**Routes Added (22):**
+- `/reports/damage`, `/reports/cost-profit`, `/reports/daily`, `/reports/budget`
+- `/reports/reconciliation`, `/reports/do-tracking`, `/reports/ledger`, `/reports/slow-moving`, `/reports/group`
+- `/reports/sr-program`, `/reports/sr-program/admin`, `/reports/dsr`
+- `/reports/inventory/warehouse-summary`, `/reports/inventory/valuation`, `/reports/inventory/dsi-gmroi`
+- `/reports/inventory/dead-stock`, `/reports/inventory/safety-stock`
+- `/reports/inventory/stock-by-batch`, `/reports/inventory/inventory-aging-batch`
+- `/reports/inventory/cogs-by-period`, `/reports/inventory/margin-analysis`, `/reports/inventory/batch-pnl`
+
+### Frontend Summary (April 7-15, 2026)
+
+**New Components & API Files:**
+- **Admin Dashboard KPI Components:** DraggableDashboard with persistence, DateRangePicker
+- **5 New API Files:** `adminSRDashboardApi.ts`, `adminDSRDashboardApi.ts`, `dsrReportsApi.ts`, `srProgramReportsApi.ts`, `pendingCustomerApi.ts`
+- **Dashboard Enhancements:** KPI widgets, top performers leaderboards, activity monitoring
+
+**New & Enhanced Pages:**
+- `/` (Admin Dashboard) - Enhanced with draggable KPI widgets
+- `/reports/dsr` - DSR performance reports (enhanced)
+- `/reports/sr-program` - 7-block workflow visualization
+- `/sr/pending-customers` - SR customer submission workflow
+
+**New Routes:**
+- SR Program Workflow routes with channel management
+- Pending Customer approval workflow routes
+
+### Historical Backend Summary (Through March 31)
+
+**Total Implementations (Through March 31):**
 - **35+ Models** - Including batch, DSR, claims, notifications, and transaction models
 - **50+ Services** - Organized by business domain with clear separation of concerns
 - **100+ API Endpoints** - Across 10+ major business domains
@@ -2030,9 +2457,9 @@ const RouteErrorBoundary = () => {
 9. Product Images (1 service, 8+ endpoints)
 10. Elasticsearch Integration (3 services, reindex operations)
 
-### Frontend Summary
+### Historical Frontend Summary (Through March 31)
 
-**Total New Implementations Added:**
+**Total Implementations (Through March 31):**
 - **70+ Pages** - New feature pages across 6+ major business areas
 - **45+ Forms** - Specialized forms for complex entity creation/editing
 - **75+ Components** - UI components, charts, modals, and utilities
@@ -2066,11 +2493,11 @@ const RouteErrorBoundary = () => {
 
 | Metric | Value | Status |
 |--------|-------|--------|
-| Lines of Backend Code | 50,000+ | ✅ |
-| Lines of Frontend Code | 75,000+ | ✅ |
+| Lines of Backend Code | 60,000+ | ✅ |
+| Lines of Frontend Code | 90,000+ | ✅ |
 | Database Schemas | 9 multi-schema architecture | ✅ |
-| API Documentation | 100+ endpoints documented | ✅ |
-| Component Reusability | 75+ reusable components | ✅ |
+| API Documentation | 170+ endpoints documented | ✅ |
+| Component Reusability | 90+ reusable components | ✅ |
 | Test Coverage | Hooks and utility patterns established | ✅ |
 
 ---
@@ -2102,4 +2529,11 @@ const RouteErrorBoundary = () => {
 
 ---
 
-*This context document was last updated on 2026-03-31 to reflect current project state and all recently implemented features.*
+*This context document was last updated on 2026-04-15 to reflect current project state and all recently implemented features (April 7-15, 2026 implementations added).*
+
+**Summary of Updates (April 7-15, 2026):**
+- Added Admin Dashboard KPIs (SR/DSR Dashboard Summary APIs)
+- Added Pending Customer Workflow documentation
+- Added 5 new Frontend API files (adminSRDashboardApi, adminDSRDashboardApi, dsrReportsApi, srProgramReportsApi, pendingCustomerApi)
+- Added 3 new Backend Services (admin_sr_dashboard_service, admin_dsr_dashboard_service, pending_customer_service)
+- Updated metrics: 60,000+ backend LOC, 90,000+ frontend LOC, 170+ API endpoints
