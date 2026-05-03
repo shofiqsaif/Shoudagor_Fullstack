@@ -1,8 +1,8 @@
 # Shoudagor Fullstack Project Context
 
-> **Last Updated:** 2026-04-15  
+> **Last Updated:** 2026-05-03  
 > **Purpose:** Comprehensive documentation for LLMs and developers to understand the Shoudagor ERP system architecture, codebase structure, and key implementation details.
-> **Note:** Updated with Admin Dashboard KPIs (SR/DSR), Pending Customer Workflow, SR Program Reports API, DSR Reports, and Dashboard enhancements (April 7-15, 2026). Previous updates include SR Reports System, SR Program Workflow, Inventory Reports (10 types), Product Image Gallery (April 1-7, 2026).
+> **Note:** Updated with Tiered Pricing Scheme for volume-based promotional pricing (May 1-3, 2026). Previous updates include Admin Dashboard KPIs (SR/DSR), Pending Customer Workflow, SR Program Reports API, DSR Reports, and Dashboard enhancements (April 7-15, 2026), plus SR Reports System, SR Program Workflow, Inventory Reports (10 types), Product Image Gallery (April 1-7, 2026).
 
 ---
 
@@ -15,23 +15,24 @@
 6. [API Structure](#api-structure)
 7. [Key Business Domains](#key-business-domains)
    - [7.1 Batch-Based Inventory](#71-batch-based-inventory)
-   - [7.2 Claims \& Schemes](#72-claims--schemes)
-   - [7.3 SR Price Management](#73-sr-price-management)
-   - [7.4 Notification System](#74-notification-system)
-   - [7.5 Dashboard \& Activity Feed](#75-dashboard--activity-feed)
-   - [7.6 Phone Suggestions](#76-phone-suggestions)
-   - [7.7 Product Image Management](#77-product-image-management)
-   - [7.8 Advanced Reporting System](#78-advanced-reporting-system)
-   - [7.9 Super Admin Features](#79-super-admin-features)
-   - [7.10 Inventory Drift \& Sync](#710-inventory-drift--sync)
-   - [7.11 Elasticsearch Sync Status](#711-elasticsearch-sync-status)
-   - [7.12 SR Reports System](#712-sr-reports-system-new)
-   - [7.13 SR Program Workflow](#713-sr-program-workflow-new)
-   - [7.14 Inventory Reports (10 Types)](#714-inventory-reports-10-types-new)
-   - [7.15 Background Jobs](#715-background-jobs)
-   - [7.16 Employee Management](#716-employee-management)
-   - [7.17 Incomplete Features](#717-incomplete-features-planned)
-   - [7.18 Pending Customer Workflow](#718-pending-customer-workflow-new)
+   - [7.2 Claims & Schemes](#72-claims--schemes)
+   - [7.3 Tiered Pricing Scheme](#73-tiered-pricing-scheme-new)
+   - [7.4 SR Price Management](#74-sr-price-management)
+   - [7.5 Notification System](#75-notification-system)
+   - [7.6 Dashboard & Activity Feed](#76-dashboard--activity-feed)
+   - [7.7 Phone Suggestions](#77-phone-suggestions)
+   - [7.8 Product Image Management](#78-product-image-management)
+   - [7.9 Advanced Reporting System](#79-advanced-reporting-system)
+   - [7.10 Super Admin Features](#710-super-admin-features)
+   - [7.11 Inventory Drift & Sync](#711-inventory-drift--sync)
+   - [7.12 Elasticsearch Sync Status](#712-elasticsearch-sync-status)
+   - [7.13 SR Reports System](#713-sr-reports-system-new)
+   - [7.14 SR Program Workflow](#714-sr-program-workflow-new)
+   - [7.15 Inventory Reports (10 Types)](#715-inventory-reports-10-types-new)
+   - [7.16 Background Jobs](#716-background-jobs)
+   - [7.17 Employee Management](#717-employee-management)
+   - [7.18 Incomplete Features](#718-incomplete-features-planned)
+   - [7.19 Pending Customer Workflow](#719-pending-customer-workflow-new)
 8. [Elasticsearch Integration](#elasticsearch-integration)
 9. [Frontend Hooks](#frontend-hooks)
 10. [Common Patterns](#common-patterns)
@@ -722,7 +723,58 @@ This is a **newly implemented module** for managing promotional schemes and clai
 - `SchemeForm.tsx` - Create/edit schemes with slabs
 - `SchemeList.tsx`, `SchemeLogList.tsx`, `ClaimReports.tsx` - List and report views
 
-### 1.2 Batch-Based Inventory
+### 1.2 Tiered Pricing Scheme (NEW - May 2026)
+
+**Location:** `app/models/claims.py`, `app/schemas/claims.py`, `app/services/claims/claim_service.py`, `app/api/claims.py`
+
+This feature adds a new promotional scheme type **`TIERED_PRICING`** that enables volume-based unit pricing where tiers are triggered by **total order amount** (quantity × unit_price).
+
+**Core Concept:**
+Instead of modifying unit prices directly, the system calculates the price difference between list price and tier price, storing it as a discount:
+
+```
+Scenario: Customer buys 25 units at List Price $100/unit = $2,500 total
+Tier Triggered: $1,000+ threshold → Tier Price $85/unit
+Price Difference: $15/unit × 25 units = $375 discount
+Line Total: $2,500 - $375 = $2,125 (effective price)
+```
+
+**New ClaimSlab Fields:**
+- `threshold_amount` - Minimum total order value (qty × unit_price) to trigger tier
+- `tier_unit_price` - Unit price for this tier level
+- `threshold_qty` - Now nullable (for tiered pricing, amount is used instead)
+
+**Example Tier Structure:**
+| Total Amount Threshold | Tier Unit Price |
+|----------------------|-----------------|
+| $1 - $999 | $100.00 |
+| $1,000 - $4,999 | $85.00 |
+| $5,000+ | $70.00 |
+
+**SchemeType Enum Update:**
+- `BUY_X_GET_Y` - Free items based on quantity
+- `REBATE_FLAT` - Fixed amount discount
+- `REBATE_PERCENTAGE` - Percentage discount
+- `TIERED_PRICING` - Volume-based unit pricing (NEW)
+
+**Validation Rules:**
+- Tier unit prices must be in strict descending order (higher tiers = lower prices)
+- `threshold_amount` is required for tiered pricing (not `threshold_qty`)
+- `tier_unit_price` must be positive and less than list price
+- Other benefit fields (`free_qty`, `discount_amount`, `discount_percentage`) must be null/0
+
+**Integration:**
+- Works with both Purchase Orders and Sales Orders
+- Integrates with existing ClaimLog audit trail
+- Compatible with current reporting and analytics
+- Financial calculations use existing discount infrastructure
+
+**API Changes:**
+- Updated `ClaimSlabBase` schema with new optional fields
+- Alembic migration adds `threshold_amount` and `tier_unit_price` columns to claim_slab table
+- Service layer validation enforces tiered pricing business rules
+
+### 1.3 Batch-Based Inventory
 
 **Location:** `app/models/batch_models.py`, `app/api/inventory/batch.py`, `app/services/inventory/`
 
@@ -833,7 +885,7 @@ This is a **major new feature** implementing batch-level inventory tracking with
   - Reports: `getStockByBatchReport()`, `getInventoryAgingReport()`, `getCOGSByPeriodReport()`, `getBatchPNLReport()`, `getMarginAnalysisReport()`
   - Reconciliation: `getReconciliationReport()`, `getReconciliationByProduct()`, `runBackfill()`, `runSalesBackfill()`
 
-### 1.3 SR Price Management
+### 1.4 SR Price Management
 
 **Location:** `app/api/sr/sr_product_assignment_price.py`, `app/services/sr/`, `app/models/sales.py`
 
@@ -865,7 +917,7 @@ This feature allows administrators to assign custom prices to products for indiv
 - `AssignProductWithPriceModal.tsx` - Modal for assigning products with prices
 - `SRPriceAssignmentForm.tsx` - Form for assigning prices
 
-### 1.4 Notification System
+### 1.5 Notification System
 
 **Location:** `app/models/notification.py`, `app/api/notification.py`, `app/services/notification/`
 
@@ -901,7 +953,7 @@ A comprehensive notification system to alert users about critical events:
 - `useNotifications` hook for state management
 - `notificationApi.ts` - API client
 
-### 1.5 Dashboard & Activity Feed
+### 1.6 Dashboard & Activity Feed
 
 **Location:** `app/services/dashboard_service.py`, `app/api/dashboard.py`
 
@@ -963,7 +1015,7 @@ The Admin Dashboard has been enhanced with **KPI visualizations** and **draggabl
 - **Real-time Updates:** Activity feed shows live operations
 - **Top Performers Leaderboards:** SR and DSR rankings
 
-### 1.6 Phone Suggestions
+### 1.7 Phone Suggestions
 
 **Location:** `app/models/sales.py` (CustomerPhoneSuggestion), `app/api/sr/customer_phone_suggestion.py`, `app/services/sr/customer_phone_suggestion_service.py`
 
@@ -1005,7 +1057,7 @@ This feature allows **Sales Representatives** to suggest phone number updates fo
 - `UpdatePhoneNumberForm.tsx` - Direct phone number update
 - `PhoneNumberSuggestions.tsx` - Admin approval list
 
-### 1.7 Product Image Management
+### 1.8 Product Image Management
 
 **Location:** `app/models/inventory.py` (ProductVariantImage), `app/api/inventory/product_variant_image.py`, `app/services/inventory/product_variant_image_service.py`
 
@@ -1048,7 +1100,7 @@ This feature manages **product variant images** with S3 storage and presigned UR
 - Presigned URL handling for direct S3 uploads
 - Batch image operations UI
 
-### 1.8 Advanced Reporting System
+### 1.9 Advanced Reporting System
 
 **Location:** `app/services/reports.py`, `app/api/reports.py`, `app/repositories/reports/`
 
@@ -1134,7 +1186,7 @@ GET /api/company/reports/batch-pnl/
 - `VariantStocksChart.tsx` - Variant stock levels
 - Plus 10+ PO report components for Maverick spend, lead times, supplier performance
 
-### 1.9 Super Admin Features
+### 1.10 Super Admin Features
 
 **Location:** `app/api/admin.py`, `app/api/admin_miscellaneous.py`, `app/services/admin/`
 
@@ -1182,7 +1234,7 @@ Enhanced administrative capabilities for system-wide management:
 - `/super-admin/miscellaneous` - Demo data population
 - `/super-admin/recent-activities` - System activity feed
 
-### 1.10 Inventory Drift & Sync
+### 1.11 Inventory Drift & Sync
 
 **Location:** `app/services/inventory/inventory_sync_service.py`, `app/services/inventory/stock_consistency_service.py`
 
@@ -1226,7 +1278,7 @@ The **Inventory Drift & Sync System** ensures consistency between batch records 
 - `DriftApprovals.tsx` - Drift approval interface with repair options
 - `BatchReconciliation.tsx` - Reconciliation report with bulk repair
 
-### 1.11 Elasticsearch Sync Status
+### 1.12 Elasticsearch Sync Status
 
 **Location:** `app/api/admin_miscellaneous.py`, `app/models/admin.py`
 
@@ -1259,7 +1311,7 @@ The **Elasticsearch Sync Status** system monitors real-time indexing operations:
 **Frontend Components:**
 - `ElasticsearchSyncStatus.tsx` - Sync status dashboard with retry operations
 
-### 1.12 SR Reports System
+### 1.13 SR Reports System
 
 **Location:** `app/models/sr_reports.py`, `app/api/sr_reports.py`, `app/services/sr/sr_reports_service.py`
 
@@ -1357,7 +1409,7 @@ GET /sr-reports/daily-report              - Consolidated daily report
 - `SlowMovingReport.tsx` - Slow-moving product analysis
 - `GroupReport.tsx` - Group-wise performance metrics
 
-### 1.13 SR Program Workflow
+### 1.14 SR Program Workflow
 
 **Location:** `app/models/sr_program.py`, `app/api/sr_program_admin.py`, `app/services/sr/sr_program_service.py`
 
@@ -1413,7 +1465,7 @@ A 7-block workflow visualization showing:
 - `SRProgramWorkflow.tsx` - Dashboard showing 7-block workflow with metrics
 - `SRProgramChannelAdmin.tsx` - Channel CRUD and customer mapping UI
 
-### 1.14 Inventory Reports (10 Types)
+### 1.15 Inventory Reports (10 Types)
 
 **Location:** `app/api/reports.py`, `app/services/reports_inventory.py`, `shoudagor_FE/src/pages/reports/inventory/`
 
@@ -1472,7 +1524,7 @@ GET /reports/inventory/batch-pnl            - Per-batch P&L
 - `MarginAnalysis.tsx` - Margin analysis
 - `BatchPnL.tsx` - Batch P&L analysis
 
-### 1.15 Background Jobs
+### 1.16 Background Jobs
 
 **Location:** `app/services/inventory/consistency_job.py`, `app/services/notification/notification_scheduler.py`
 
@@ -1490,7 +1542,7 @@ The system includes **background jobs** for automated operations:
 **Materialized View Service:**
 - `MaterializedViewRefreshService`: Manages materialized view refresh for optimized queries
 
-### 1.16 Employee Management
+### 1.17 Employee Management
 
 **Location:** `app/models/security.py`, `app/api/security.py` (referenced in frontend)
 
@@ -1517,7 +1569,7 @@ The **Employee Management** system provides comprehensive user/employee handling
 - `Roles.tsx` - Role management interface
 - `AddEmployee.tsx` - Add employee form
 
-### 1.17 Incomplete Features (Planned)
+### 1.18 Incomplete Features (Planned)
 
 **Location:** `src/pages/drafts/`, `src/pages/Quotations.tsx`, `src/pages/SalesReturns.tsx`
 
@@ -1535,7 +1587,7 @@ The following features have placeholder implementations and are marked as incomp
 - Backend support exists via SalesOrder with `type` field ('draft', 'quotation', 'sale')
 - Full implementation would require backend API endpoints and form components
 
-### 1.18 Pending Customer Workflow (NEW)
+### 1.19 Pending Customer Workflow (NEW)
 
 **Location:** `app/models/sales.py` (PendingCustomer), `app/api/sr/pending_customer.py`, `app/services/sr/pending_customer_service.py`, `shoudagor_FE/src/lib/api/pendingCustomerApi.ts`
 
@@ -2220,6 +2272,7 @@ const RouteErrorBoundary = () => {
 | SR Reports (NEW - April 2026) | `app/models/sr_reports.py`, `app/api/sr_reports.py`, `app/services/sr/sr_reports_service.py` |
 | SR Program Workflow (NEW - April 2026) | `app/models/sr_program.py`, `app/api/sr_program_admin.py`, `app/services/sr/sr_program_service.py` |
 | Claims logic | `app/api/claims.py`, `app/services/claims/`, `app/schemas/claims.py` |
+| Tiered Pricing logic (NEW - May 2026) | `app/services/claims/claim_service.py` - TIERED_PRICING scheme type validation and evaluation |
 | Reports logic | `app/services/reports.py`, `app/schemas/reports.py`, `app/repositories/reports/` |
 | Inventory Reports (NEW - April 2026) | `app/api/reports.py` (10 endpoints), `app/services/reports_inventory.py` |
 | Consolidation logic | `app/services/consolidation_service.py` |
@@ -2356,6 +2409,9 @@ const RouteErrorBoundary = () => {
 | `shoudagor_FE/src/pages/reports/DSRReports.tsx` | DSR Reports page - NEW April 2026 |
 | `shoudagor_FE/src/pages/reports/SRProgramWorkflow.tsx` | SR Program 7-block workflow dashboard - NEW April 2026 |
 | `shoudagor_FE/src/components/draggable-dashboard.tsx` | Draggable dashboard layout component - NEW April 2026 |
+| `Shoudagor/app/models/claims.py` (ClaimSlab) | Tiered Pricing model with threshold_amount, tier_unit_price - NEW May 2026 |
+| `Shoudagor/app/schemas/claims.py` | Tiered Pricing schema with TIERED_PRICING scheme type - NEW May 2026 |
+| `Shoudagor/app/services/claims/claim_service.py` | Tiered Pricing validation and evaluation logic - NEW May 2026 |
 
 ---
 
@@ -2435,6 +2491,27 @@ const RouteErrorBoundary = () => {
 **New Routes:**
 - SR Program Workflow routes with channel management
 - Pending Customer approval workflow routes
+
+### Backend Summary (May 1-3, 2026)
+
+**Total New Implementations Added (May 1-3, 2026):**
+- **1 Model Update** - ClaimSlab model extended with `threshold_amount` and `tier_unit_price` columns
+- **1 Schema Update** - `ClaimSlabBase` schema with new tiered pricing fields
+- **1 New Scheme Type** - `TIERED_PRICING` added to SchemeType enum
+- **Service Logic Updates** - ClaimService validation and evaluation logic for tiered pricing
+
+**May 2026 Implementation Summary:**
+
+| Feature | Models | Services | API Endpoints | Status |
+|---------|--------|----------|---------------|--------|
+| **Tiered Pricing Scheme** | 1 update | 1 update | Uses existing | ✅ 100% |
+
+**Tiered Pricing Details:**
+- **Type**: Volume-based unit pricing triggered by total order amount (qty × unit_price)
+- **Storage Mechanism**: Price difference stored as discount_amount (List Price - Tier Price)
+- **Integration**: Works with Purchase Orders and Sales Orders via existing ClaimLog
+- **Validation**: Tier prices must be in strict descending order
+- **Migration**: Alembic migration adds `threshold_amount` and `tier_unit_price` columns
 
 ### Historical Backend Summary (Through March 31)
 
@@ -2529,7 +2606,14 @@ const RouteErrorBoundary = () => {
 
 ---
 
-*This context document was last updated on 2026-04-15 to reflect current project state and all recently implemented features (April 7-15, 2026 implementations added).*
+*This context document was last updated on 2026-05-03 to reflect current project state and all recently implemented features (May 1-3, 2026 Tiered Pricing implementation added).*
+
+**Summary of Updates (May 1-3, 2026):**
+- Added Tiered Pricing Scheme (TIERED_PRICING) for volume-based promotional pricing
+- Extended ClaimSlab model with `threshold_amount` and `tier_unit_price` fields
+- Added tiered pricing validation and evaluation logic to ClaimService
+- Updated SchemeType enum with new TIERED_PRICING option
+- Documented discount-based storage mechanism for price differences
 
 **Summary of Updates (April 7-15, 2026):**
 - Added Admin Dashboard KPIs (SR/DSR Dashboard Summary APIs)
